@@ -198,16 +198,52 @@ STOCK_DESCRIPTIONS = {
     "SONY":       "Electronics, gaming (PlayStation), and entertainment",
 }
 
-# ── Defensive assets (always included alongside screened stocks) ─────────────
-# (key, display_name, ticker_or_None, description)
+# ── Asset classes (always included alongside screened stocks) ────────────────
+# (key, display_name, ticker, description, category)
 
-DEFENSIVE_ASSETS = [
-    ("GOLD",  "Gold",                 "SGLN.L", "Physical gold — historically holds value during market crises and periods of high inflation"),
-    ("GILTS", "UK Government Bonds",  "IGLT.L", "Loans to the UK government — lower risk, pays steady income, tends to rise when stock markets fall"),
-    ("UKRE",  "UK Real Estate",       "IUKP.L", "A basket of UK property companies — exposure to real estate without buying directly"),
-    ("CASH",  "Cash",                 None,      "Equivalent to a high-interest savings account — earns a steady return with no market exposure"),
+ASSET_CLASSES = [
+    # Commodities
+    ("GOLD",    "Gold",                        "SGLN.L",  "Physical gold — the classic safe haven, tends to spike during crises and inflation", "Commodity"),
+    ("SILVER",  "Silver",                       "ISLN.L",  "Silver — cheaper than gold, used in industrial processes as well as a store of value", "Commodity"),
+    ("OIL",     "Oil (Brent Crude)",            "CRUD.L",  "Brent crude oil — rises when global demand is strong, falls during recessions", "Commodity"),
+    ("COPPER",  "Copper",                       "COPA.L",  "Copper — used in construction and electronics, often called the metal with a PhD in economics because it predicts economic growth", "Commodity"),
+    ("NATGAS",  "Natural Gas",                  "NGAS.L",  "Natural gas — volatile, sensitive to weather and geopolitical supply disruptions", "Commodity"),
+    # Fixed Income
+    ("GILTS",   "UK Gilts",                     "IGLT.L",  "UK government bonds — lower risk, pays steady income, tends to rise when stock markets fall", "FixedIncome"),
+    ("USTREAS", "US Treasuries",                "IBTM.L",  "US government bonds — the world's safest asset, dollar-denominated", "FixedIncome"),
+    ("HYBOND",  "Global High Yield Bonds",      "IHYG.L",  "Loans to riskier companies paying higher interest — more return than safe bonds but falls sharply in crises", "FixedIncome"),
+    ("EMBOND",  "Emerging Market Bonds",        "SEMB.L",  "Government bonds from developing countries — higher yield, higher risk, different return drivers from developed markets", "FixedIncome"),
+    # Real Assets
+    ("REIT",    "Global Real Estate REITs",     "REIT.L",  "Property companies worldwide — exposure to real estate without buying directly, pays dividends", "RealAsset"),
+    ("INFRA",   "UK Infrastructure",            "HICL.L",  "Roads, hospitals, and schools — stable, inflation-linked income streams", "RealAsset"),
+    # Forex
+    ("USD",     "US Dollar",                    "UUP",     "Tracks the US dollar against a basket of currencies — tends to rise during global crises when investors seek safety", "Forex"),
+    ("EUR",     "Euro",                         "FXE",     "Tracks the Euro — useful hedge against sterling weakness or European economic outperformance", "Forex"),
+    ("JPY",     "Japanese Yen",                 "FXY",     "Tracks the Japanese Yen — historically rises during global risk-off periods, acts as a safe haven", "Forex"),
+    ("EMFX",    "Emerging Market Currencies",   "CEW",     "Basket of emerging market currencies — tends to perform well when global growth is strong and commodity prices rise", "Forex"),
+    # Crypto
+    ("BTC",     "Bitcoin",                      "BTC-USD", "The largest cryptocurrency — extremely volatile, low correlation to traditional assets, increasingly treated as digital gold by institutional investors", "Crypto"),
+    ("ETH",     "Ethereum",                     "ETH-USD", "The second largest cryptocurrency — powers decentralised applications, higher risk and higher potential return than Bitcoin", "Crypto"),
 ]
-_DEFENSIVE_KEYS = [row[0] for row in DEFENSIVE_ASSETS]
+_ASSET_KEYS     = [row[0] for row in ASSET_CLASSES]
+_ASSET_CATEGORY = {row[0]: row[4] for row in ASSET_CLASSES}
+
+# Individual per-asset caps
+_INDIVIDUAL_CAPS = {
+    "GOLD": 0.10, "SILVER": 0.10, "OIL": 0.10, "COPPER": 0.10, "NATGAS": 0.10,
+    "GILTS": 0.15, "USTREAS": 0.15, "HYBOND": 0.15, "EMBOND": 0.15,
+    "REIT": 0.15, "INFRA": 0.10,
+    "USD": 0.08, "EUR": 0.08, "JPY": 0.08, "EMFX": 0.08,
+    "BTC": 0.06, "ETH": 0.06,
+}
+
+# Combined caps across an entire category
+_CATEGORY_CAPS = {
+    "Commodity":   0.20,
+    "FixedIncome": 0.30,
+    "Forex":       0.15,
+    "Crypto":      0.10,
+}
 
 RISK_FREE_RATE = 0.045   # UK gilt yield ~4.5%
 TRADING_DAYS   = 252
@@ -222,13 +258,18 @@ SCREEN_TARGET_N = 15
 def download_prices(tickers: tuple) -> pd.DataFrame:
     end   = date.today()
     start = end - timedelta(days=YEARS_DATA * 365 + 60)
-    raw   = yf.download(
-        tickers     = list(tickers),
-        start       = start.isoformat(),
-        end         = end.isoformat(),
-        auto_adjust = True,
-        progress    = False,
-    )
+    try:
+        raw = yf.download(
+            tickers     = list(tickers),
+            start       = start.isoformat(),
+            end         = end.isoformat(),
+            auto_adjust = True,
+            progress    = False,
+        )
+    except Exception:
+        return pd.DataFrame()
+    if raw is None or raw.empty:
+        return pd.DataFrame()
     prices = raw["Close"]
     if isinstance(prices, pd.Series):
         prices = prices.to_frame(name=tickers[0])
@@ -239,33 +280,36 @@ def download_prices(tickers: tuple) -> pd.DataFrame:
 def download_benchmark() -> pd.Series:
     end   = date.today()
     start = end - timedelta(days=YEARS_DATA * 365 + 60)
-    raw   = yf.download(
-        "^FTSE", start=start.isoformat(), end=end.isoformat(),
-        auto_adjust=True, progress=False,
-    )
+    try:
+        raw = yf.download(
+            "^FTSE", start=start.isoformat(), end=end.isoformat(),
+            auto_adjust=True, progress=False,
+        )
+    except Exception:
+        return pd.Series(dtype=float)
+    if raw is None or raw.empty:
+        return pd.Series(dtype=float)
     return raw["Close"].squeeze().dropna()
 
 
 @st.cache_data(show_spinner=False)
-def download_defensive_prices() -> pd.DataFrame:
-    tickers = [row[2] for row in DEFENSIVE_ASSETS if row[2] is not None]
+def download_asset_prices() -> pd.DataFrame:
+    tickers = [row[2] for row in ASSET_CLASSES if row[2] is not None]
     end   = date.today()
     start = end - timedelta(days=YEARS_DATA * 365 + 60)
-    raw   = yf.download(
-        tickers=tickers, start=start.isoformat(), end=end.isoformat(),
-        auto_adjust=True, progress=False,
-    )
+    try:
+        raw = yf.download(
+            tickers=tickers, start=start.isoformat(), end=end.isoformat(),
+            auto_adjust=True, progress=False,
+        )
+    except Exception:
+        return pd.DataFrame()
+    if raw is None or raw.empty:
+        return pd.DataFrame()
     prices = raw["Close"]
     if isinstance(prices, pd.Series):
         prices = prices.to_frame(name=tickers[0])
     return prices.dropna(how="all").dropna(axis=1, how="all")
-
-
-def make_cash_returns(index: pd.DatetimeIndex) -> pd.Series:
-    mean_daily = 4.2 / 100 / 252
-    rng   = np.random.default_rng(seed=42)
-    noise = rng.normal(0, 0.0001, len(index))
-    return pd.Series(mean_daily + noise, index=index)
 
 # ── Step 2: Daily returns ─────────────────────────────────────────────────────
 
@@ -317,27 +361,25 @@ def screen_stocks(returns: pd.DataFrame, target_n: int = SCREEN_TARGET_N):
 
     return selected, sharpe
 
-# ── Step 4: Optimiser (stocks + 4 defensive assets, single stage) ────────────
+# ── Step 4: Optimiser (stocks + commodities, fixed income, real assets, forex, crypto) ──
 
 def _build_constraints(tickers: list, stock_set: set) -> list:
     constraints = [{"type": "eq", "fun": lambda w: np.sum(w) - 1.0}]
     eq_idx = [i for i, t in enumerate(tickers) if t in stock_set]
     if eq_idx:
         constraints.append({"type": "ineq", "fun": lambda w, idx=eq_idx: 0.60 - np.sum(w[idx])})
+    for cat, cap in _CATEGORY_CAPS.items():
+        idx = [i for i, t in enumerate(tickers) if _ASSET_CATEGORY.get(t) == cat]
+        if idx:
+            constraints.append({"type": "ineq", "fun": lambda w, idx=idx, cap=cap: cap - np.sum(w[idx])})
     return constraints
 
 
 def _asset_bounds(tickers: list, stock_set: set) -> list:
     bounds = []
     for t in tickers:
-        if t == "GOLD":
-            bounds.append((0.0, 0.20))
-        elif t == "GILTS":
-            bounds.append((0.0, 0.30))
-        elif t == "UKRE":
-            bounds.append((0.0, 0.15))
-        elif t == "CASH":
-            bounds.append((0.05, 1.0))
+        if t in _INDIVIDUAL_CAPS:
+            bounds.append((0.0, _INDIVIDUAL_CAPS[t]))
         elif t in stock_set:
             bounds.append((0.0, 0.15))
         else:
@@ -395,7 +437,10 @@ def run_optimiser(
 
     clipped = np.clip(raw, 0.0, None)
     total   = clipped.sum()
-    return pd.Series(clipped / total if total > 0 else clipped, index=tickers)
+    if total <= 0:
+        n = len(tickers)
+        return pd.Series(np.ones(n) / n, index=tickers)
+    return pd.Series(clipped / total, index=tickers)
 
 # ── Step 6: Performance metrics ───────────────────────────────────────────────
 
@@ -464,10 +509,14 @@ def get_market_caps(tickers: tuple) -> pd.Series:
         except Exception:
             caps[t] = 0.0
     s = pd.Series(caps, dtype=float)
-    total = s.sum()
-    if total <= 0:
+    known = s[s > 0]
+    if known.empty:
         return pd.Series(1.0 / len(tickers), index=list(tickers))
-    return s / total
+    # Stocks with missing/unavailable market cap fall back to the average of the known caps
+    # rather than being silently treated as having zero weight.
+    s = s.where(s > 0, known.mean())
+    total = s.sum()
+    return s / total if total > 0 else pd.Series(1.0 / len(tickers), index=list(tickers))
 
 
 def get_combined_market_weights(stock_tickers: list, asset_keys: list) -> pd.Series:
@@ -547,7 +596,7 @@ def volatility_regime(benchmark_prices: pd.Series) -> str:
     if len(r) < 60:
         return "Normal"
     recent_vol = r.iloc[-21:].std() * np.sqrt(TRADING_DAYS)
-    hist_vol   = r.iloc[-252:].std() * np.sqrt(TRADING_DAYS)
+    hist_vol   = r.iloc[-TRADING_DAYS:].std() * np.sqrt(TRADING_DAYS)
     if hist_vol <= 0:
         return "Normal"
     ratio = recent_vol / hist_vol
@@ -807,36 +856,40 @@ def generate_method_explanation(
 
 # ── New "Why split this way?" / selection-rationale paragraphs ───────────────
 
-def generate_defensive_role_paragraph(weights: dict) -> str:
-    gold  = weights.get("GOLD", 0.0)
-    gilts = weights.get("GILTS", 0.0)
-    ukre  = weights.get("UKRE", 0.0)
-    cash  = weights.get("CASH", 0.0)
-    total = gold + gilts + ukre + cash
-    equity_total = max(0.0, 1.0 - total)
+# (asset_key -> (inclusion_threshold, plain-English explanation))
+_ASSET_EXPLANATION_RULES = {
+    "BTC":     (0.03, "A small Bitcoin allocation is included because it has historically had low correlation with stocks and bonds — it tends to move independently, which adds diversification value despite its high individual volatility."),
+    "ETH":     (0.02, "A small Ethereum allocation is included for similar reasons to Bitcoin — it has historically moved largely independently of stocks and bonds, though it carries even higher volatility and is tied to the growth of decentralised application activity."),
+    "OIL":     (0.05, "Oil benefits from different economic conditions than most stocks — it tends to rise when inflation is high and global demand is strong, providing a hedge against inflationary periods that hurt bond-heavy portfolios."),
+    "JPY":     (0.03, "The Japanese Yen tends to rise during global market stress when investors seek safety — it acts as insurance against sharp stock market falls."),
+    "USTREAS": (0.08, "US Treasuries are the world's safest asset — they tend to rise when stock markets fall sharply, reducing your worst-case loss."),
+    "GOLD":    (0.02, "Gold is included as a hedge against market stress and inflation — it has historically held its value when both stocks and bonds fall together, providing genuine diversification rather than just another source of risk."),
+    "SILVER":  (0.02, "Silver offers safe-haven properties similar to gold at a lower price point, though its industrial uses mean it is more closely tied to the economic cycle than gold is."),
+    "COPPER":  (0.02, "Copper tracks global industrial demand and construction activity, giving the portfolio exposure to economic growth through a different channel from equities."),
+    "NATGAS":  (0.02, "Natural gas adds exposure to energy markets that move on weather and supply disruptions rather than corporate earnings, a different driver from the rest of the portfolio."),
+    "GILTS":   (0.02, "UK government bonds are a classic counterweight to stocks — they tend to hold steady or rise when UK equity markets fall, reducing how far the overall portfolio drops in a downturn."),
+    "HYBOND":  (0.02, "High yield bonds pay more income than safer government bonds because they carry more credit risk — they behave more like stocks in a downturn, so the model uses them in moderation."),
+    "EMBOND":  (0.02, "Emerging market bonds add income from economies with different growth and inflation cycles from the UK, US, and Europe, though they can fall sharply alongside emerging market currencies in a crisis."),
+    "REIT":    (0.02, "Global real estate adds exposure to property income and values worldwide, which tends to move somewhat independently of broader stock and bond markets."),
+    "INFRA":   (0.02, "UK infrastructure assets generate steady, often inflation-linked income from essential public projects, giving the portfolio a source of return that isn't tied to stock market sentiment."),
+    "USD":     (0.02, "The US dollar tends to strengthen during periods of global market stress, as investors seek safety in the world's reserve currency — a small holding can cushion the portfolio when risk appetite falls."),
+    "EUR":     (0.02, "A Euro holding provides a hedge against sterling weakness and gives some exposure to the relative strength of the European economy."),
+    "EMFX":    (0.02, "Emerging market currencies tend to rise alongside global growth and commodity prices, adding a return driver distinct from developed-market stocks and bonds."),
+}
 
-    if total < 0.03:
-        return ""
 
-    parts = []
-    if gold > 0.01:
-        parts.append(f"{gold*100:.0f}% in gold")
-    if gilts > 0.01:
-        parts.append(f"{gilts*100:.0f}% in UK government bonds")
-    if ukre > 0.01:
-        parts.append(f"{ukre*100:.0f}% in UK real estate")
-    if cash > 0.01:
-        parts.append(f"{cash*100:.0f}% in cash")
-    components = ", ".join(parts) if parts else f"{total*100:.0f}% in defensive assets"
-
-    return (
-        f"**The role of your defensive assets:** Alongside your {equity_total*100:.0f}% in stocks, the model holds "
-        f"{components} ({total*100:.0f}% of the portfolio in total). Gold, government bonds, and real estate tend to "
-        "behave differently from stocks — bonds typically rise when stock markets fall as investors seek safety, "
-        "gold often holds its value during crises and inflation, and property adds an income-generating asset with "
-        "its own cycle. Together with cash, these act as a buffer: when equity markets fall sharply, these holdings "
-        "are designed to cushion the blow, smoothing out the ride in exchange for some upside in calmer years."
+def generate_asset_explanations(weights: dict, names: dict) -> list:
+    """Plain-English explanation for any non-stock asset above its inclusion threshold."""
+    blocks = []
+    ordered = sorted(
+        _ASSET_EXPLANATION_RULES.items(),
+        key=lambda kv: weights.get(kv[0], 0.0), reverse=True,
     )
+    for key, (threshold, sentence) in ordered:
+        w = weights.get(key, 0.0)
+        if w > threshold:
+            blocks.append(f"**{names.get(key, key)} — {w*100:.0f}%**\n\n{sentence}")
+    return blocks
 
 
 def generate_selection_rationale_paragraph(
@@ -844,7 +897,7 @@ def generate_selection_rationale_paragraph(
     sector_map: dict,
     weights: "pd.Series",
     n_considered: int,
-    defensive_weights: dict,
+    asset_weights: dict,
 ) -> str:
     sector_counts: dict = {}
     for t in selected_stocks:
@@ -853,7 +906,7 @@ def generate_selection_rationale_paragraph(
     top_sectors = sorted(sector_counts.items(), key=lambda x: x[1], reverse=True)[:2]
     sector_txt  = " and ".join(f"{s} ({c} stock{'s' if c != 1 else ''})" for s, c in top_sectors)
 
-    total_def = sum(defensive_weights.get(k, 0.0) for k in _DEFENSIVE_KEYS)
+    total_other = sum(asset_weights.get(k, 0.0) for k in _ASSET_KEYS)
 
     return (
         f"From a universe of {n_considered} global stocks across the UK, US, Europe, and Asia, our screening "
@@ -862,9 +915,9 @@ def generate_selection_rationale_paragraph(
         f"from one another, so the portfolio isn't overly exposed to any single market move. "
         f"{sector_txt} dominated the final selection, reflecting where the strongest combination of return and "
         f"diversification was found in the current market environment. "
-        f"Alongside these stocks, gold, UK government bonds, UK real estate, and cash make up "
-        f"{total_def*100:.0f}% of the portfolio, balancing the growth potential of the selected stocks with assets "
-        "that tend to hold up better when equity markets fall."
+        f"Alongside these stocks, the model also draws on commodities, fixed income, real assets, currencies, and "
+        f"crypto — together making up {total_other*100:.0f}% of the portfolio — to balance the growth potential of "
+        "the selected stocks with assets that behave differently when markets move."
     )
 
 
@@ -913,7 +966,6 @@ def generate_allocation_explanations(
             best_peer  = min(peer_corrs, key=peer_corrs.get)
             best_c     = peer_corrs[best_peer]
             worst_peer = max(peer_corrs, key=peer_corrs.get)
-            worst_c    = peer_corrs[worst_peer]
 
         if w >= 0.10:
             if strong_earner and peers:
@@ -1239,7 +1291,6 @@ def fmt_2dp(x):  return f"{x:.2f}"
 # Colour palette
 _SLATE   = "#4A6FA5"   # primary accent
 _SAGE    = "#52796F"   # positive / upward
-_ROSE    = "#9B6B6B"   # negative / downward
 _GREY    = "#8B8FA8"   # secondary text
 _BORDER  = "#2A2D3E"   # subtle borders / dividers
 _BG_CARD = "#131620"   # card / panel background
@@ -1446,6 +1497,11 @@ def _trust_section(
         "rather than as a precise forecast of what any of them will return."
     )
 
+    caution = (
+        "Crypto and forex assets have shorter or more volatile historical records than equities and bonds. "
+        "The backtest for portfolios containing these assets should be interpreted with extra caution."
+    )
+
     def _para(label: str, body: str) -> str:
         return (
             f'<div style="border-left:3px solid {_BORDER};padding:12px 18px;margin-bottom:18px;">'
@@ -1462,6 +1518,7 @@ def _trust_section(
         + _para("What the model got wrong:", got_wrong)
         + _para("The honest verdict:", verdict)
         + _para("How confident should you be in these numbers?", confidence)
+        + _para("A note on crypto and forex:", caution)
         + '</div>'
     )
 
@@ -1541,17 +1598,23 @@ def main():
         return
 
     with st.sidebar:
+        n_commodity = sum(1 for r in ASSET_CLASSES if r[4] == "Commodity")
+        n_fixed     = sum(1 for r in ASSET_CLASSES if r[4] == "FixedIncome")
+        n_real      = sum(1 for r in ASSET_CLASSES if r[4] == "RealAsset")
+        n_forex     = sum(1 for r in ASSET_CLASSES if r[4] == "Forex")
+        n_crypto    = sum(1 for r in ASSET_CLASSES if r[4] == "Crypto")
         st.caption(
-            f"Analysing {len(FULL_STOCK_UNIVERSE)} global companies and 4 defensive assets "
-            "to find your optimal allocation."
+            f"Analysing {len(FULL_STOCK_UNIVERSE)} Global Stocks, {n_commodity} Commodities, "
+            f"{n_fixed} Fixed Income, {n_real} Real Assets, {n_forex} Forex, and {n_crypto} Crypto "
+            "assets to find your optimal allocation."
         )
 
     # ── Download & screen ───────────────────────────────────────────────────────
     with st.spinner("Downloading global market data…"):
-        all_tickers      = tuple(sorted(FULL_STOCK_UNIVERSE.keys()))
-        prices_all       = download_prices(all_tickers)
-        benchmark        = download_benchmark()
-        defensive_prices = download_defensive_prices()
+        all_tickers = tuple(sorted(FULL_STOCK_UNIVERSE.keys()))
+        prices_all  = download_prices(all_tickers)
+        benchmark   = download_benchmark()
+        asset_prices = download_asset_prices()
 
     available_stocks = [t for t in FULL_STOCK_UNIVERSE if t in prices_all.columns]
     if len(available_stocks) < 15:
@@ -1571,21 +1634,20 @@ def main():
     sector_map = {t: FULL_STOCK_UNIVERSE[t][1] for t in selected_stocks}
     returns_stocks = returns_all[selected_stocks].dropna()
 
-    defensive_returns = calculate_returns(defensive_prices.ffill())
-    common_idx  = returns_stocks.index
-    def_aligned = defensive_returns.reindex(common_idx).ffill()
+    asset_returns = calculate_returns(asset_prices.ffill())
+    common_idx    = returns_stocks.index
+    asset_aligned = asset_returns.reindex(common_idx).ffill()
 
     combined = pd.DataFrame(index=common_idx)
     for t in selected_stocks:
         combined[t] = returns_stocks[t]
-    for key, dname, ticker, ddesc in DEFENSIVE_ASSETS:
-        if ticker is not None and ticker in def_aligned.columns:
-            combined[key] = def_aligned[ticker]
-    combined["CASH"] = make_cash_returns(common_idx)
+    for key, aname, ticker, adesc, acat in ASSET_CLASSES:
+        if ticker is not None and ticker in asset_aligned.columns:
+            combined[key] = asset_aligned[ticker]
     combined = combined.dropna()
 
     stock_set       = set(selected_stocks)
-    available_assets = [k for k in _DEFENSIVE_KEYS if k in combined.columns]
+    available_assets = [k for k in _ASSET_KEYS if k in combined.columns]
     all_keys         = [t for t in selected_stocks if t in combined.columns] + available_assets
 
     mean_returns, cov_matrix = build_statistics(combined[all_keys])
@@ -1651,8 +1713,8 @@ def main():
     m        = performance_metrics(port_ret)
 
     display_names = dict(names)
-    for key, dname, ticker, ddesc in DEFENSIVE_ASSETS:
-        display_names[key] = dname
+    for key, aname, ticker, adesc, acat in ASSET_CLASSES:
+        display_names[key] = aname
 
     # ── Section 1: Your recommended investments ─────────────────────────────────
     st.markdown(_h(2, "Your recommended investments"), unsafe_allow_html=True)
@@ -1666,7 +1728,7 @@ def main():
             if is_stock:
                 what_it_is = STOCK_DESCRIPTIONS.get(t, "")
             else:
-                what_it_is = next(d for k, n, tk, d in DEFENSIVE_ASSETS if k == t)
+                what_it_is = next(d for k, n, tk, d, c in ASSET_CLASSES if k == t)
             rows.append({
                 "Investment":      display_names.get(t, t),
                 "What it is":      what_it_is,
@@ -1680,17 +1742,20 @@ def main():
     st.markdown(
         f'<p style="color:{_GREY};font-size:0.78rem;margin:10px 0 0 0;">'
         "Non-UK stocks are priced in their local currency. Returns are calculated in local currency terms — "
-        "exchange rate movements are not accounted for in this model.</p>",
+        "exchange rate movements are not accounted for in this model.</p>"
+        f'<p style="color:{_GREY};font-size:0.78rem;margin:4px 0 0 0;">'
+        "Crypto and forex assets are highly volatile and not suitable for all investors. This tool does not "
+        "constitute financial advice. Capital is at risk.</p>",
         unsafe_allow_html=True,
     )
 
     # ── Section 2: Why these investments were chosen ────────────────────────────
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown(_h(3, "Why these investments were chosen"), unsafe_allow_html=True)
-    defensive_w_dict = {k: float(weights.get(k, 0)) for k in _DEFENSIVE_KEYS}
+    asset_w_dict = {k: float(weights.get(k, 0)) for k in _ASSET_KEYS}
     st.markdown(
         generate_selection_rationale_paragraph(
-            selected_stocks, sector_map, weights, len(FULL_STOCK_UNIVERSE), defensive_w_dict
+            selected_stocks, sector_map, weights, len(FULL_STOCK_UNIVERSE), asset_w_dict
         )
     )
 
@@ -1733,7 +1798,7 @@ def main():
         tc2.metric("Annual Volatility", fmt_pct(m["Annual Volatility"]),
                    help="Standard deviation of annual returns.")
         tc3.metric("Sharpe Ratio",      fmt_2dp(m["Sharpe Ratio"]),
-                   help="Return above the UK gilt rate (~4.5%) per unit of risk. Higher is better.")
+                   help=f"Return above the UK gilt rate (~{RISK_FREE_RATE*100:.1f}%) per unit of risk. Higher is better.")
         tc4.metric("Sortino Ratio",     fmt_2dp(m["Sortino Ratio"]),
                    help="Like Sharpe but only counts bad days as risk.")
 
@@ -1756,10 +1821,11 @@ def main():
 
     st.markdown(
         "To find your optimal allocation, we tested three different approaches to splitting your money across "
-        "your screened stocks and the four defensive assets. The first looks purely at how each investment has "
-        "performed historically and finds the combination that would have worked best. The second ignores recent "
-        "history and instead starts from what the market collectively expects each investment to return. The third "
-        "blends both approaches, giving more weight to whichever has been more reliable recently."
+        "your screened stocks and the full range of commodities, fixed income, real assets, currencies, and crypto. "
+        "The first looks purely at how each investment has performed historically and finds the combination that "
+        "would have worked best. The second ignores recent history and instead starts from what the market "
+        "collectively expects each investment to return. The third blends both approaches, giving more weight to "
+        "whichever has been more reliable recently."
     )
 
     _exp_parts = generate_method_explanation(
@@ -1776,14 +1842,14 @@ def main():
     st.markdown(_h(2, "Why is the money split this way?"), unsafe_allow_html=True)
     st.markdown(
         _sub("The model considered every possible way to divide your money across your screened stocks and the "
-             "four defensive assets, and settled on these weights because they give you the best combination of "
-             "growth and stability for the risk level you chose — based on 5 years of historical data."),
+             "full range of commodities, fixed income, real assets, currencies, and crypto, and settled on these "
+             "weights because they give you the best combination of growth and stability for the risk level you "
+             "chose — based on 5 years of historical data."),
         unsafe_allow_html=True,
     )
 
-    _def_para = generate_defensive_role_paragraph(defensive_w_dict)
-    if _def_para:
-        st.markdown(_def_para)
+    for _ap in generate_asset_explanations(asset_w_dict, display_names):
+        st.markdown(_ap)
         _divider()
 
     stock_weights_for_explain = weights.reindex(selected_stocks).fillna(0)
@@ -1804,7 +1870,9 @@ def main():
 
     st.markdown(generate_backtest_intro(om, em, bm, investing_goal))
 
-    n_test_periods = max(1, (len(combined[all_keys]) - TRAIN_DAYS) // TEST_DAYS)
+    # Use the realised number of out-of-sample windows (eq_cum's length), not the
+    # theoretical maximum, in case any window was skipped during the backtest.
+    n_test_periods = max(1, len(eq_cum) // TEST_DAYS)
     st.markdown(
         _trust_section(om, em, bm, n_test_periods, portfolio_size, display_cum, eq_cum, bench_cum),
         unsafe_allow_html=True,
