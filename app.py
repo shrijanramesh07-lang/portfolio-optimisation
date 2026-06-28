@@ -228,22 +228,37 @@ ASSET_CLASSES = [
 _ASSET_KEYS     = [row[0] for row in ASSET_CLASSES]
 _ASSET_CATEGORY = {row[0]: row[4] for row in ASSET_CLASSES}
 
-# Individual per-asset caps
-_INDIVIDUAL_CAPS = {
-    "GOLD": 0.10, "SILVER": 0.10, "OIL": 0.10, "COPPER": 0.10, "NATGAS": 0.10,
-    "GILTS": 0.15, "USTREAS": 0.15, "HYBOND": 0.15, "EMBOND": 0.15,
-    "REIT": 0.15, "INFRA": 0.10,
-    "USD": 0.08, "EUR": 0.08, "JPY": 0.08, "EMFX": 0.08,
-    "BTC": 0.06, "ETH": 0.06,
+# Assets that receive a dynamic minimum weight floor: bonds, gold, infrastructure, real estate
+DEFENSIVE_FLOOR_KEYS = {"GOLD", "GILTS", "USTREAS", "HYBOND", "EMBOND", "REIT", "INFRA"}
+
+# ── User-preference toggle definitions ────────────────────────────────────────
+TECH_PREFERENCE_TICKERS   = {"AAPL", "MSFT", "NVDA", "GOOGL", "META", "AMZN", "CRM", "ADBE", "ASML.AS", "SAP.DE", "AVGO", "NFLX"}
+INFLATION_PREFERENCE_KEYS = {"GOLD", "OIL", "COPPER", "INFRA"}
+CRYPTO_PREFERENCE_KEYS    = {"BTC", "ETH"}
+INCOME_PREFERENCE_KEYS    = {"GILTS", "USTREAS", "HYBOND", "EMBOND", "REIT"}
+FOSSIL_FUEL_EXCLUDE_KEYS  = {"OIL", "NATGAS", "BP.L", "SHEL.L", "GLEN.L", "XOM", "CVX", "TTE.PA"}
+
+PREFERENCE_LABELS = {
+    "tech":        "I believe in tech",
+    "inflation":   "I want inflation protection",
+    "crypto":      "I'm bullish on crypto",
+    "income":      "I want income",
+    "fossil_free": "Avoid fossil fuels",
+    "uk":          "UK focused",
+}
+PREFERENCE_GROUP_NAMES = {
+    "tech":      "technology stocks",
+    "inflation": "inflation-hedging assets",
+    "crypto":    "crypto",
+    "income":    "income-generating bonds and real estate",
+    "uk":        "UK-listed stocks",
 }
 
-# Combined caps across an entire category
-_CATEGORY_CAPS = {
-    "Commodity":   0.20,
-    "FixedIncome": 0.30,
-    "Forex":       0.15,
-    "Crypto":      0.10,
-}
+# ── Dynamic asset-cap formula constants ───────────────────────────────────────
+DYNAMIC_BASE_CAP   = 0.20
+DYNAMIC_ALPHA      = 0.5
+DYNAMIC_BETA       = 0.4
+DYNAMIC_BASE_FLOOR = 0.15
 
 RISK_FREE_RATE = 0.045   # UK gilt yield ~4.5%
 TRADING_DAYS   = 252
@@ -361,29 +376,80 @@ def screen_stocks(returns: pd.DataFrame, target_n: int = SCREEN_TARGET_N):
 
     return selected, sharpe
 
+# ── Risk scoring (drives the dynamic constraint system) ──────────────────────
+
+def calculate_risk_scores(returns: pd.DataFrame, keys: list) -> pd.Series:
+    """risk_score(asset) = annualised_volatility(asset) / max(annualised_volatility(all assets))"""
+    vol = returns[keys].std() * np.sqrt(TRADING_DAYS)
+    max_vol = float(vol.max())
+    if max_vol <= 0:
+        return pd.Series(0.0, index=keys)
+    return (vol / max_vol).clip(lower=0.0, upper=1.0)
+
 # ── Step 4: Optimiser (stocks + commodities, fixed income, real assets, forex, crypto) ──
 
-def _build_constraints(tickers: list, stock_set: set) -> list:
+def _build_constraints(tickers: list, stock_set: set, user_risk: float) -> list:
     constraints = [{"type": "eq", "fun": lambda w: np.sum(w) - 1.0}]
     eq_idx = [i for i, t in enumerate(tickers) if t in stock_set]
     if eq_idx:
-        constraints.append({"type": "ineq", "fun": lambda w, idx=eq_idx: 0.60 - np.sum(w[idx])})
-    for cat, cap in _CATEGORY_CAPS.items():
-        idx = [i for i, t in enumerate(tickers) if _ASSET_CATEGORY.get(t) == cat]
-        if idx:
-            constraints.append({"type": "ineq", "fun": lambda w, idx=idx, cap=cap: cap - np.sum(w[idx])})
+        equity_cap = 0.20 + 0.40 * user_risk
+        constraints.append({"type": "ineq", "fun": lambda w, idx=eq_idx, cap=equity_cap: cap - np.sum(w[idx])})
     return constraints
 
 
-def _asset_bounds(tickers: list, stock_set: set) -> list:
-    bounds = []
+def _dynamic_bounds(
+    tickers: list,
+    stock_set: set,
+    risk_scores: "pd.Series",
+    user_risk: float,
+    preferences: dict = None,
+) -> list:
+    """
+    Per-asset (min, max) bounds:
+      max_weight = base_cap * (1 - alpha * risk_score) * (1 + beta * user_risk)
+      min_weight = max(0, base_floor * (1 - user_risk) * (1 - risk_score))  -- defensive assets only
+    plus any active user-preference adjustments on top.
+    """
+    preferences = preferences or {}
+    raw_caps, raw_floors = [], []
     for t in tickers:
-        if t in _INDIVIDUAL_CAPS:
-            bounds.append((0.0, _INDIVIDUAL_CAPS[t]))
-        elif t in stock_set:
-            bounds.append((0.0, 0.15))
-        else:
-            bounds.append((0.0, 1.0))
+        rs = float(risk_scores.get(t, 0.5))
+        max_w = max(0.0, DYNAMIC_BASE_CAP * (1 - DYNAMIC_ALPHA * rs) * (1 + DYNAMIC_BETA * user_risk))
+
+        min_w = 0.0
+        if t in DEFENSIVE_FLOOR_KEYS:
+            min_w = max(0.0, DYNAMIC_BASE_FLOOR * (1 - user_risk) * (1 - rs))
+
+        if preferences.get("tech") and t in TECH_PREFERENCE_TICKERS:
+            max_w *= 1.4
+        if preferences.get("crypto") and t in CRYPTO_PREFERENCE_KEYS:
+            max_w *= 1.5
+            min_w = max(min_w, 0.02)
+        if preferences.get("uk") and t in stock_set and str(t).endswith(".L"):
+            max_w *= 1.3
+        if preferences.get("inflation") and t in INFLATION_PREFERENCE_KEYS:
+            min_w = max(min_w, 0.05)
+        if preferences.get("income") and t in INCOME_PREFERENCE_KEYS:
+            min_w = max(min_w, 0.05)
+        if preferences.get("fossil_free") and t in FOSSIL_FUEL_EXCLUDE_KEYS:
+            max_w = 0.0
+            min_w = 0.0
+
+        raw_caps.append(max_w)
+        raw_floors.append(min_w)
+
+    # Safety: if the floors collectively leave no room for the sum-to-1 constraint,
+    # scale them down proportionally so the optimiser always has a feasible region.
+    floor_total = sum(raw_floors)
+    if floor_total > 0.95:
+        scale = 0.95 / floor_total
+        raw_floors = [f * scale for f in raw_floors]
+
+    bounds = []
+    for lo, hi in zip(raw_floors, raw_caps):
+        if lo > hi:
+            lo = hi
+        bounds.append((lo, hi))
     return bounds
 
 
@@ -405,11 +471,14 @@ def run_optimiser(
     tickers:      list,
     stock_set:    set,
     risk_level:   int,
+    risk_scores:  "pd.Series",
+    preferences:  dict = None,
 ) -> pd.Series:
     mu  = mean_returns.values
     cov = cov_matrix.values
-    con = _build_constraints(tickers, stock_set)
-    bnd = _asset_bounds(tickers, stock_set)
+    user_risk = risk_level / 100.0
+    con = _build_constraints(tickers, stock_set, user_risk)
+    bnd = _dynamic_bounds(tickers, stock_set, risk_scores, user_risk, preferences)
 
     def portfolio_vol(w):
         return float(np.sqrt(w @ cov @ w))
@@ -462,7 +531,7 @@ def performance_metrics(daily_returns: pd.Series) -> dict:
 
 # ── Step 5: Rolling backtest ──────────────────────────────────────────────────
 
-def rolling_backtest(returns, tickers, stock_set, risk_level, benchmark_prices):
+def rolling_backtest(returns, tickers, stock_set, risk_level, benchmark_prices, risk_scores, preferences=None):
     opt_daily, eq_daily = [], []
     n_total, start = len(returns), 0
 
@@ -475,7 +544,7 @@ def rolling_backtest(returns, tickers, stock_set, risk_level, benchmark_prices):
             continue
         mu, cov = build_statistics(train[valid])
         try:
-            w = run_optimiser(mu, cov, valid, stock_set, risk_level)
+            w = run_optimiser(mu, cov, valid, stock_set, risk_level, risk_scores, preferences)
         except Exception:
             start += TEST_DAYS
             continue
@@ -551,7 +620,7 @@ def black_litterman_returns(
     return pd.Series(pi + RISK_FREE_RATE, index=tickers)
 
 
-def rolling_backtest_bl(returns, tickers, stock_set, risk_level, benchmark_prices, market_cap_weights):
+def rolling_backtest_bl(returns, tickers, stock_set, risk_level, benchmark_prices, market_cap_weights, risk_scores, preferences=None):
     """Like rolling_backtest but uses Black-Litterman expected returns in each window."""
     opt_daily, eq_daily = [], []
     n_total, start = len(returns), 0
@@ -569,7 +638,7 @@ def rolling_backtest_bl(returns, tickers, stock_set, risk_level, benchmark_price
         w_mkt = w_mkt / s if s > 0 else pd.Series(1.0 / len(valid), index=valid)
         mu_bl = black_litterman_returns(mu_hist, cov, w_mkt)
         try:
-            w = run_optimiser(mu_bl, cov, valid, stock_set, risk_level)
+            w = run_optimiser(mu_bl, cov, valid, stock_set, risk_level, risk_scores, preferences)
         except Exception:
             start += TEST_DAYS
             continue
@@ -1523,6 +1592,295 @@ def _trust_section(
     )
 
 
+# ── Risk score visualisation and explanation (Change 3) ───────────────────────
+
+def calculate_universe_sharpes(mean_returns: "pd.Series", cov_matrix: "pd.DataFrame", tickers: list) -> "pd.Series":
+    vols = pd.Series({t: np.sqrt(float(cov_matrix.loc[t, t])) for t in tickers})
+    return (mean_returns.reindex(tickers) - RISK_FREE_RATE) / vols
+
+
+def _define_once(term: str, definition: str, seen: set) -> str:
+    """Returns the term with an inline bracket definition the first time it's used, plain after that."""
+    if term in seen:
+        return term
+    seen.add(term)
+    return f"{term} ({definition})"
+
+
+def generate_risk_score_summary_sentence(avg_score: float) -> str:
+    if avg_score < 40:
+        comparison = "lower than"
+    elif avg_score <= 60:
+        comparison = "similar to"
+    else:
+        comparison = "higher than"
+    return f"Your portfolio's average risk score is {avg_score:.0f} out of 100 — {comparison} a typical balanced portfolio."
+
+
+def _risk_gradient_color(score_0_100: float) -> str:
+    """Linear RGB interpolation between #52796F (low risk score) and #9B2226 (high risk score)."""
+    t = max(0.0, min(1.0, score_0_100 / 100.0))
+    c1 = (0x52, 0x79, 0x6F)
+    c2 = (0x9B, 0x22, 0x26)
+    r = round(c1[0] + (c2[0] - c1[0]) * t)
+    g = round(c1[1] + (c2[1] - c1[1]) * t)
+    b = round(c1[2] + (c2[2] - c1[2]) * t)
+    return f"#{r:02X}{g:02X}{b:02X}"
+
+
+def _render_risk_score_chart(score_items: list) -> None:
+    """score_items: list of (key, display_name, score_0_100)."""
+    if not score_items:
+        return
+    items  = sorted(score_items, key=lambda x: x[2])
+    names_ = [n for _, n, _ in items]
+    scores = [s for _, _, s in items]
+    colors = [_risk_gradient_color(s) for s in scores]
+
+    fig = go.Figure(go.Bar(
+        x=scores, y=names_, orientation="h",
+        marker=dict(color=colors),
+        text=[f"{s:.0f}" for s in scores],
+        textposition="outside",
+    ))
+    fig.update_layout(
+        height=max(220, 32 * len(items)),
+        margin=dict(l=0, r=30, t=10, b=40),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(color=_GREY),
+        xaxis=dict(range=[0, 100], showticklabels=False, gridcolor="#1E2130", zerolinecolor=_BORDER, title=""),
+        yaxis=dict(gridcolor="#1E2130", zerolinecolor=_BORDER, title=""),
+        showlegend=False,
+        annotations=[
+            dict(xref="paper", yref="paper", x=0, y=-0.12, xanchor="left", yanchor="top",
+                 text="Safer", showarrow=False, font=dict(color=_GREY, size=12)),
+            dict(xref="paper", yref="paper", x=1, y=-0.12, xanchor="right", yanchor="top",
+                 text="More volatile", showarrow=False, font=dict(color=_GREY, size=12)),
+        ],
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+
+def _dynamic_cap_only(risk_score: float, user_risk: float) -> float:
+    return max(0.0, DYNAMIC_BASE_CAP * (1 - DYNAMIC_ALPHA * risk_score) * (1 + DYNAMIC_BETA * user_risk))
+
+
+def _render_risk_cap_table(score_items: list, risk_level: int) -> None:
+    """score_items: list of (key, display_name, score_0_100)."""
+    user_risk = risk_level / 100.0
+    cols = ["Investment", "Your risk level cap", "Cap at lowest risk", "Cap at highest risk"]
+    header = "".join(
+        f'<th style="background:#1E2130;color:{_GREY};padding:10px 16px;'
+        f'text-align:left;font-weight:500;font-size:0.82rem;white-space:nowrap;">{c}</th>'
+        for c in cols
+    )
+    body = ""
+    for i, (key, name, score100) in enumerate(score_items):
+        rs       = score100 / 100.0
+        cap_now  = _dynamic_cap_only(rs, user_risk)
+        cap_low  = _dynamic_cap_only(rs, 0.0)
+        cap_high = _dynamic_cap_only(rs, 1.0)
+        bg = "#161822" if i % 2 == 0 else "#1A1D2B"
+        body += (
+            f'<tr style="background:{bg};">'
+            f'<td style="padding:10px 16px;color:{_TEXT};font-weight:500;white-space:nowrap;">{name}</td>'
+            f'<td style="padding:10px 16px;color:{_SLATE};font-weight:600;white-space:nowrap;">{cap_now*100:.1f}%</td>'
+            f'<td style="padding:10px 16px;color:{_GREY};white-space:nowrap;">{cap_low*100:.1f}%</td>'
+            f'<td style="padding:10px 16px;color:{_GREY};white-space:nowrap;">{cap_high*100:.1f}%</td>'
+            f'</tr>'
+        )
+    st.markdown(
+        f'<div style="overflow-x:auto;border-radius:8px;border:1px solid {_BORDER};">'
+        f'<table style="width:100%;border-collapse:collapse;">'
+        f'<thead><tr>{header}</tr></thead><tbody>{body}</tbody></table></div>',
+        unsafe_allow_html=True,
+    )
+
+
+def generate_role_explanations(
+    held_items: list,
+    universe_sharpes: "pd.Series",
+    universe_avg_sharpe: float,
+    sharpe_threshold: float,
+    combined_df: "pd.DataFrame",
+    defensive_keys: set,
+    seen_terms: set,
+) -> list:
+    """held_items: list of (key, display_name, score_0_100, weight)."""
+    held_keys = [k for k, _, _, _ in held_items]
+    corr_df = combined_df[held_keys].corr() if len(held_keys) > 1 else None
+
+    blocks = []
+    for key, name, score100, w in held_items:
+        w_sharpe = float(universe_sharpes.get(key, 0.0))
+        avg_corr = None
+        if corr_df is not None and key in corr_df.columns:
+            peers = [k for k in held_keys if k != key]
+            if peers:
+                avg_corr = float(corr_df.loc[key, peers].mean())
+
+        sharpe_term = _define_once("Sharpe ratio", "how much return you get per unit of risk taken", seen_terms)
+        corr_term   = _define_once(
+            "correlation",
+            "a measure of how closely two investments move together, from -1 (opposite) to +1 (identical)",
+            seen_terms,
+        )
+        vol_term = _define_once("volatility", "how much the portfolio's value moves up and down", seen_terms)
+
+        if w_sharpe >= sharpe_threshold:
+            blocks.append(
+                f"**{name}** was chosen for its strong historical return relative to its risk — a {sharpe_term} "
+                f"of {w_sharpe:.2f} compared to the universe average of {universe_avg_sharpe:.2f}."
+            )
+        elif avg_corr is not None and avg_corr < 0.3:
+            blocks.append(
+                f"**{name}** was chosen because it tends to move independently of your other investments — its "
+                f"average {corr_term} with the rest of your portfolio is {avg_corr:.2f}, which reduced overall "
+                f"{vol_term} without sacrificing return."
+            )
+        elif key in defensive_keys and w > 0.03:
+            blocks.append(
+                f"**{name}** was included as a buffer — it has historically held its value or risen during stock "
+                "market downturns, reducing your worst-case loss."
+            )
+        else:
+            blocks.append(
+                f"**{name}** was included because it improved the overall balance of return and risk within your "
+                "portfolio at this risk level."
+            )
+    return blocks
+
+
+def generate_left_out_explanations(
+    all_sharpes: "pd.Series",
+    selected_stocks: list,
+    universe_sharpes: "pd.Series",
+    weights: "pd.Series",
+    all_keys: list,
+    stock_set: set,
+    names: dict,
+    combined_df: "pd.DataFrame",
+    returns_all: "pd.DataFrame",
+    risk_scores: "pd.Series",
+    max_vol: float,
+    active_preferences: dict,
+    seen_terms: set,
+) -> list:
+    candidates = []
+    for t in all_sharpes.index:
+        if t not in selected_stocks:
+            candidates.append((t, float(all_sharpes[t]), "stock"))
+    for k in all_keys:
+        if k not in stock_set and float(weights.get(k, 0)) <= 0.01:
+            candidates.append((k, float(universe_sharpes.get(k, 0.0)), "asset"))
+    candidates.sort(key=lambda x: x[1], reverse=True)
+    top5 = candidates[:5]
+
+    held_keys = [t for t in all_keys if float(weights.get(t, 0)) > 0.01]
+
+    blocks = []
+    for ticker, sharpe_val, kind in top5:
+        name = names.get(ticker, ticker)
+
+        if active_preferences.get("fossil_free") and ticker in FOSSIL_FUEL_EXCLUDE_KEYS:
+            reason = f"the '{PREFERENCE_LABELS['fossil_free']}' preference you selected excluded it"
+        else:
+            most_sim, most_c = None, -2.0
+            r_series = None
+            if kind == "stock" and ticker in returns_all.columns:
+                r_series = returns_all[ticker]
+            elif kind == "asset" and ticker in combined_df.columns:
+                r_series = combined_df[ticker]
+
+            if r_series is not None:
+                for hk in held_keys:
+                    if hk == ticker or hk not in combined_df.columns:
+                        continue
+                    paired = pd.concat([r_series, combined_df[hk]], axis=1).dropna()
+                    if len(paired) > 30:
+                        c = float(paired.iloc[:, 0].corr(paired.iloc[:, 1]))
+                        if c > most_c:
+                            most_c, most_sim = c, hk
+
+            if most_sim is not None and most_c >= 0.7:
+                sim_name = names.get(most_sim, most_sim)
+                reason = f"it is highly correlated with {sim_name}, which already captures that exposure"
+            else:
+                if ticker in risk_scores.index:
+                    rs = float(risk_scores.get(ticker, 0.0))
+                elif ticker in returns_all.columns and max_vol > 0:
+                    vol = float(returns_all[ticker].std() * np.sqrt(TRADING_DAYS))
+                    rs = min(1.0, vol / max_vol)
+                else:
+                    rs = 0.0
+                if rs >= 0.6:
+                    reason = f"its risk score of {rs*100:.0f} was too high relative to the return it added at your risk level"
+                else:
+                    reason = (
+                        "it did not improve the portfolio's overall risk-adjusted return despite a reasonable "
+                        "individual Sharpe ratio"
+                    )
+
+        sharpe_term = _define_once("Sharpe ratio", "how much return you get per unit of risk taken", seen_terms)
+        blocks.append(f"**{name}** ({sharpe_term} {sharpe_val:.2f}) was not included because {reason}.")
+    return blocks
+
+
+def generate_preference_impact_sentences(
+    active_prefs: list,
+    all_prefs: dict,
+    mean_returns: "pd.Series",
+    cov_matrix: "pd.DataFrame",
+    tickers: list,
+    stock_set: set,
+    risk_level: int,
+    risk_scores: "pd.Series",
+) -> list:
+    if not active_prefs:
+        return []
+    sentences = []
+    for pref in active_prefs:
+        prefs_without = dict(all_prefs)
+        prefs_without[pref] = False
+        try:
+            w_with    = run_optimiser(mean_returns, cov_matrix, tickers, stock_set, risk_level, risk_scores, all_prefs)
+            w_without = run_optimiser(mean_returns, cov_matrix, tickers, stock_set, risk_level, risk_scores, prefs_without)
+        except Exception:
+            continue
+
+        if pref == "uk":
+            group = {t for t in tickers if t in stock_set and str(t).endswith(".L")}
+        elif pref == "fossil_free":
+            group = FOSSIL_FUEL_EXCLUDE_KEYS
+        else:
+            group = {
+                "tech":      TECH_PREFERENCE_TICKERS,
+                "inflation": INFLATION_PREFERENCE_KEYS,
+                "crypto":    CRYPTO_PREFERENCE_KEYS,
+                "income":    INCOME_PREFERENCE_KEYS,
+            }[pref]
+
+        pct_with    = sum(float(w_with.get(k, 0))    for k in group) * 100
+        pct_without = sum(float(w_without.get(k, 0)) for k in group) * 100
+        label = PREFERENCE_LABELS[pref]
+
+        if pref == "fossil_free":
+            sentences.append(
+                f"The '{label}' preference removed fossil fuel investments from consideration, which would "
+                f"otherwise have received about {pct_without:.1f}% of your portfolio."
+            )
+        else:
+            diff = pct_with - pct_without
+            verb = "more" if diff >= 0 else "less"
+            group_name = PREFERENCE_GROUP_NAMES[pref]
+            sentences.append(
+                f"The '{label}' preference allowed the optimiser to allocate {abs(diff):.1f}% {verb} to "
+                f"{group_name} than it would have otherwise."
+            )
+    return sentences
+
+
 def main():
     st.set_page_config(
         page_title="Portfolio Optimiser",
@@ -1565,6 +1923,29 @@ def main():
             st.caption("Balanced — a mix of growth and stability. Accepts some volatility in exchange for higher long-term returns.")
         else:
             st.caption("Growth-focused — maximising long-term return potential. Expects significant short-term swings.")
+
+        st.divider()
+
+        st.markdown(_h(3, "Your preferences (optional)"), unsafe_allow_html=True)
+        st.caption(
+            "These nudge the model toward your views. The optimiser still finds the best allocation "
+            "within your preferences."
+        )
+        pref_tech      = st.toggle("I believe in tech", value=False)
+        pref_inflation = st.toggle("I want inflation protection", value=False)
+        pref_crypto    = st.toggle("I'm bullish on crypto", value=False)
+        pref_income    = st.toggle("I want income", value=False)
+        pref_fossil    = st.toggle("Avoid fossil fuels", value=False)
+        pref_uk        = st.toggle("UK focused", value=False)
+
+        preferences = {
+            "tech":        pref_tech,
+            "inflation":   pref_inflation,
+            "crypto":      pref_crypto,
+            "income":      pref_income,
+            "fossil_free": pref_fossil,
+            "uk":          pref_uk,
+        }
 
         run_clicked = st.button("Calculate my portfolio", type="primary", use_container_width=True)
 
@@ -1652,6 +2033,10 @@ def main():
 
     mean_returns, cov_matrix = build_statistics(combined[all_keys])
 
+    # Pre-optimisation risk scoring — computed once, reused for every method and every
+    # rolling-backtest window (the backtest windowing logic itself is unchanged).
+    risk_scores = calculate_risk_scores(combined, all_keys)
+
     _empty_m = {"Sharpe Ratio": 0.0, "Annual Return": 0.0, "Annual Volatility": 0.0, "Max Drawdown": 0.0, "Sortino Ratio": 0.0}
 
     def bt_m(cum):
@@ -1660,7 +2045,7 @@ def main():
     # ── Optimisation ─────────────────────────────────────────────────────────────
     with st.spinner("Running analysis — this takes around 60 seconds…"):
         try:
-            mvo_weights = run_optimiser(mean_returns, cov_matrix, all_keys, stock_set, risk_level)
+            mvo_weights = run_optimiser(mean_returns, cov_matrix, all_keys, stock_set, risk_level, risk_scores, preferences)
         except Exception as e:
             st.error(f"Optimisation failed: {e}")
             return
@@ -1668,17 +2053,17 @@ def main():
         mkt_w = get_combined_market_weights(selected_stocks, available_assets)
         bl_means = black_litterman_returns(mean_returns, cov_matrix, mkt_w)
         try:
-            bl_weights = run_optimiser(bl_means, cov_matrix, all_keys, stock_set, risk_level)
+            bl_weights = run_optimiser(bl_means, cov_matrix, all_keys, stock_set, risk_level, risk_scores, preferences)
         except Exception:
             bl_weights = mvo_weights
 
         regime = volatility_regime(benchmark)
 
         mvo_opt_cum, eq_cum, bench_cum = rolling_backtest(
-            combined[all_keys], all_keys, stock_set, risk_level, benchmark
+            combined[all_keys], all_keys, stock_set, risk_level, benchmark, risk_scores, preferences
         )
         bl_opt_cum, _, _ = rolling_backtest_bl(
-            combined[all_keys], all_keys, stock_set, risk_level, benchmark, mkt_w
+            combined[all_keys], all_keys, stock_set, risk_level, benchmark, mkt_w, risk_scores, preferences
         )
 
         if not mvo_opt_cum.empty and not bl_opt_cum.empty:
@@ -1712,7 +2097,7 @@ def main():
     port_ret = combined[all_keys] @ weights.reindex(all_keys).fillna(0).values
     m        = performance_metrics(port_ret)
 
-    display_names = dict(names)
+    display_names = {t: v[0] for t, v in FULL_STOCK_UNIVERSE.items()}
     for key, aname, ticker, adesc, acat in ASSET_CLASSES:
         display_names[key] = aname
 
@@ -1748,6 +2133,68 @@ def main():
         "constitute financial advice. Capital is at risk.</p>",
         unsafe_allow_html=True,
     )
+
+    # ── Why these assets, and why these amounts? ─────────────────────────────────
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown(_h(2, "Why these assets, and why these amounts?"), unsafe_allow_html=True)
+
+    held_items = []
+    for t in all_keys:
+        w_held = float(weights.get(t, 0))
+        if w_held > 0.01:
+            held_items.append((t, display_names.get(t, t), float(risk_scores.get(t, 0.0)) * 100, w_held))
+    held_items.sort(key=lambda x: x[3], reverse=True)
+
+    # Sub-section 1 — How we scored each investment
+    st.markdown(_h(3, "How we scored each investment"), unsafe_allow_html=True)
+    _render_risk_score_chart([(k, n, s) for k, n, s, w in held_items])
+    avg_score = (sum(s for _, _, s, _ in held_items) / len(held_items)) if held_items else 0.0
+    st.markdown(generate_risk_score_summary_sentence(avg_score))
+
+    # Sub-section 2 — How your risk setting shaped the limits
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown(_h(3, "How your risk setting shaped the limits"), unsafe_allow_html=True)
+    st.markdown(
+        f"You set your risk level to {risk_level}%. This is how it affected the maximum we were willing to invest "
+        "in each asset — riskier assets get tighter limits, but your risk setting loosens them as you move toward growth."
+    )
+    _render_risk_cap_table([(k, n, s) for k, n, s, w in held_items], risk_level)
+
+    # Sub-section 3 — Why the optimiser picked these investments
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown(_h(3, "Why the optimiser picked these investments"), unsafe_allow_html=True)
+    _seen_terms = set()
+    universe_sharpes    = calculate_universe_sharpes(mean_returns, cov_matrix, all_keys)
+    universe_avg_sharpe = float(universe_sharpes.mean())
+    sharpe_threshold     = float(universe_sharpes.quantile(0.75))
+    for block in generate_role_explanations(
+        held_items, universe_sharpes, universe_avg_sharpe, sharpe_threshold,
+        combined[all_keys], DEFENSIVE_FLOOR_KEYS, _seen_terms,
+    ):
+        st.markdown(block)
+
+    # Sub-section 4 — What we left out and why
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown(_h(3, "What we left out and why"), unsafe_allow_html=True)
+    max_vol = float((combined[all_keys].std() * np.sqrt(TRADING_DAYS)).max())
+    for block in generate_left_out_explanations(
+        all_sharpes, selected_stocks, universe_sharpes, weights, all_keys, stock_set,
+        display_names, combined[all_keys], returns_all, risk_scores, max_vol, preferences, _seen_terms,
+    ):
+        st.markdown(block)
+
+    # Sub-section 5 — How your preferences changed the result (only if any are active)
+    _active_prefs = [k for k, v in preferences.items() if v]
+    if _active_prefs:
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown(_h(3, "How your preferences changed the result"), unsafe_allow_html=True)
+        with st.spinner("Comparing your preferences against the baseline…"):
+            for s in generate_preference_impact_sentences(
+                _active_prefs, preferences, mean_returns, cov_matrix, all_keys, stock_set, risk_level, risk_scores,
+            ):
+                st.markdown(s)
+
+    _divider()
 
     # ── Section 2: Why these investments were chosen ────────────────────────────
     st.markdown("<br>", unsafe_allow_html=True)
