@@ -6,84 +6,215 @@ from scipy.optimize import minimize
 import plotly.graph_objects as go
 from datetime import date, timedelta
 
-# ── Stock universe ────────────────────────────────────────────────────────────
+# ── Full global stock universe ────────────────────────────────────────────────
+# (name, sector)
 
-STOCK_UNIVERSE = {
-    "AZN.L":   ("AstraZeneca",               "Healthcare"),
-    "GSK.L":   ("GSK",                       "Healthcare"),
-    "ULVR.L":  ("Unilever",                  "Consumer Staples"),
-    "DGE.L":   ("Diageo",                    "Consumer Staples"),
-    "BATS.L":  ("British American Tobacco",  "Consumer Staples"),
-    "TSCO.L":  ("Tesco",                     "Consumer Staples"),
-    "IMB.L":   ("Imperial Brands",           "Consumer Staples"),
-    "HSBA.L":  ("HSBC",                      "Financials"),
-    "LLOY.L":  ("Lloyds",                    "Financials"),
-    "BARC.L":  ("Barclays",                  "Financials"),
-    "STAN.L":  ("Standard Chartered",        "Financials"),
-    "LGEN.L":  ("Legal & General",           "Financials"),
-    "BP.L":    ("BP",                        "Energy"),
-    "SHEL.L":  ("Shell",                     "Energy"),
-    "RIO.L":   ("Rio Tinto",                 "Materials"),
-    "AAL.L":   ("Anglo American",            "Materials"),
-    "GLEN.L":  ("Glencore",                  "Materials"),
-    "NG.L":    ("National Grid",             "Utilities"),
-    "SSE.L":   ("SSE",                       "Utilities"),
-    "BAE.L":   ("BAE Systems",               "Industrials"),
-    "RR.L":    ("Rolls-Royce",               "Industrials"),
-    "BT-A.L":  ("BT Group",                  "Telecom"),
-    "VOD.L":   ("Vodafone",                  "Telecom"),
-    "SGRO.L":  ("Segro",                     "Real Estate"),
-    "LAND.L":  ("Land Securities",           "Real Estate"),
+FULL_STOCK_UNIVERSE = {
+    # FTSE 100
+    "HSBA.L":     ("HSBC", "Financials"),
+    "BARC.L":     ("Barclays", "Financials"),
+    "LLOY.L":     ("Lloyds", "Financials"),
+    "LGEN.L":     ("Legal & General", "Financials"),
+    "AZN.L":      ("AstraZeneca", "Healthcare"),
+    "GSK.L":      ("GSK", "Healthcare"),
+    "HLMA.L":     ("Halma", "Industrials"),
+    "SN.L":       ("Smith & Nephew", "Healthcare"),
+    "ULVR.L":     ("Unilever", "Consumer Staples"),
+    "DGE.L":      ("Diageo", "Consumer Staples"),
+    "BATS.L":     ("British American Tobacco", "Consumer Staples"),
+    "RKT.L":      ("Reckitt", "Consumer Staples"),
+    "BP.L":       ("BP", "Energy"),
+    "SHEL.L":     ("Shell", "Energy"),
+    "RIO.L":      ("Rio Tinto", "Materials"),
+    "GLEN.L":     ("Glencore", "Materials"),
+    "BHP.L":      ("BHP", "Materials"),
+    "RR.L":       ("Rolls-Royce", "Industrials"),
+    "BA.L":       ("BAE Systems", "Industrials"),
+    "CPG.L":      ("Compass Group", "Industrials"),
+    "RTO.L":      ("Rentokil", "Industrials"),
+    "SGRO.L":     ("Segro", "Real Estate"),
+    "LAND.L":     ("Land Securities", "Real Estate"),
+    "NG.L":       ("National Grid", "Utilities"),
+    "SSE.L":      ("SSE", "Utilities"),
+    "VOD.L":      ("Vodafone", "Telecom"),
+    "BT-A.L":     ("BT Group", "Telecom"),
+    "RMV.L":      ("Rightmove", "Technology"),
+    "AUTO.L":     ("Auto Trader", "Technology"),
+    "EXPN.L":     ("Experian", "Financials"),
+    "REL.L":      ("Relx", "Industrials"),
+    "LSEG.L":     ("London Stock Exchange Group", "Financials"),
+    "PRU.L":      ("Prudential", "Financials"),
+    "STJ.L":      ("St James's Place", "Financials"),
+    "MKS.L":      ("Marks & Spencer", "Consumer Discretionary"),
+    "NXT.L":      ("Next", "Consumer Discretionary"),
+    "JD.L":       ("JD Sports", "Consumer Discretionary"),
+    # FTSE 250
+    "ICP.L":      ("Intermediate Capital Group", "Financials"),
+    "ATG.L":      ("Auction Technology", "Technology"),
+    "BYIT.L":     ("Bytes Technology", "Technology"),
+    "DPLM.L":     ("Diploma", "Industrials"),
+    "WOSG.L":     ("Watches of Switzerland", "Consumer Discretionary"),
+    "HFG.L":      ("Hilton Food Group", "Consumer Staples"),
+    # US Large Cap
+    "AAPL":       ("Apple", "Technology"),
+    "MSFT":       ("Microsoft", "Technology"),
+    "NVDA":       ("Nvidia", "Technology"),
+    "AMZN":       ("Amazon", "Consumer Discretionary"),
+    "GOOGL":      ("Alphabet", "Technology"),
+    "META":       ("Meta", "Technology"),
+    "TSLA":       ("Tesla", "Consumer Discretionary"),
+    "BRK-B":      ("Berkshire Hathaway", "Financials"),
+    "JPM":        ("JPMorgan Chase", "Financials"),
+    "JNJ":        ("Johnson & Johnson", "Healthcare"),
+    "XOM":        ("Exxon Mobil", "Energy"),
+    "V":          ("Visa", "Financials"),
+    "UNH":        ("UnitedHealth", "Healthcare"),
+    "PG":         ("Procter & Gamble", "Consumer Staples"),
+    "MA":         ("Mastercard", "Financials"),
+    "LLY":        ("Eli Lilly", "Healthcare"),
+    "AVGO":       ("Broadcom", "Technology"),
+    "CVX":        ("Chevron", "Energy"),
+    "HD":         ("Home Depot", "Consumer Discretionary"),
+    "COST":       ("Costco", "Consumer Staples"),
+    "MRK":        ("Merck", "Healthcare"),
+    "ABBV":       ("AbbVie", "Healthcare"),
+    "PEP":        ("PepsiCo", "Consumer Staples"),
+    "KO":         ("Coca-Cola", "Consumer Staples"),
+    "MCD":        ("McDonald's", "Consumer Discretionary"),
+    "NKE":        ("Nike", "Consumer Discretionary"),
+    "DIS":        ("Walt Disney", "Consumer Discretionary"),
+    "NFLX":       ("Netflix", "Consumer Discretionary"),
+    "CRM":        ("Salesforce", "Technology"),
+    "ADBE":       ("Adobe", "Technology"),
+    # European Large Cap
+    "MC.PA":      ("LVMH", "Consumer Discretionary"),
+    "NESN.SW":    ("Nestlé", "Consumer Staples"),
+    "ROG.SW":     ("Roche", "Healthcare"),
+    "ASML.AS":    ("ASML", "Technology"),
+    "SAP.DE":     ("SAP", "Technology"),
+    "NOVO-B.CO":  ("Novo Nordisk", "Healthcare"),
+    "TTE.PA":     ("TotalEnergies", "Energy"),
+    "SIE.DE":     ("Siemens", "Industrials"),
+    "RMS.PA":     ("Hermès", "Consumer Discretionary"),
+    "RACE.MI":    ("Ferrari", "Consumer Discretionary"),
+    "SU.PA":      ("Schneider Electric", "Industrials"),
+    "OR.PA":      ("L'Oréal", "Consumer Staples"),
+    # Asia Pacific
+    "7203.T":     ("Toyota", "Consumer Discretionary"),
+    "005930.KS":  ("Samsung", "Technology"),
+    "TSM":        ("TSMC", "Technology"),
+    "SONY":       ("Sony", "Technology"),
 }
+
+STOCK_DESCRIPTIONS = {
+    "HSBA.L":     "Global banking and financial services",
+    "BARC.L":     "Retail banking, credit cards, and investment banking",
+    "LLOY.L":     "High street banking, mortgages, and insurance",
+    "LGEN.L":     "Life insurance, pensions, and long-term savings",
+    "AZN.L":      "Prescription medicines and cancer treatments",
+    "GSK.L":      "Vaccines, antibiotics, and specialist medicines",
+    "HLMA.L":     "Safety, health, and environmental technology",
+    "SN.L":       "Medical devices — wound care, orthopaedics, surgery",
+    "ULVR.L":     "Everyday brands — Dove, Ben & Jerry's, Marmite, Persil",
+    "DGE.L":      "Premium drinks and spirits — Guinness, Johnnie Walker, Baileys",
+    "BATS.L":     "Cigarettes and next-generation nicotine products (Vuse, Velo)",
+    "RKT.L":      "Household and health brands — Dettol, Nurofen, Durex",
+    "BP.L":       "Oil, gas, and renewable energy",
+    "SHEL.L":     "Global oil, gas, and low-carbon energy",
+    "RIO.L":      "Iron ore, copper, and critical minerals for clean energy",
+    "GLEN.L":     "Commodities trading and mining — cobalt, copper, zinc",
+    "BHP.L":      "Iron ore, copper, and coal mining",
+    "RR.L":       "Jet engines, power systems, and defence technology",
+    "BA.L":       "Defence systems, military aircraft, and cyber security",
+    "CPG.L":      "Catering and food services for businesses worldwide",
+    "RTO.L":      "Pest control and hygiene services worldwide",
+    "SGRO.L":     "Warehouses and logistics properties for e-commerce",
+    "LAND.L":     "Offices, retail parks, and commercial property in London",
+    "NG.L":       "Gas and electricity networks in the UK and US",
+    "SSE.L":      "Electricity generation, networks, and home energy supply",
+    "VOD.L":      "Mobile and broadband across Europe and Africa",
+    "BT-A.L":     "Broadband, mobile (EE), and business telecommunications",
+    "RMV.L":      "UK's largest property listings website",
+    "AUTO.L":     "UK's largest online car marketplace",
+    "EXPN.L":     "Credit reports and data analytics worldwide",
+    "REL.L":      "Scientific publishing, legal data, and risk analytics",
+    "LSEG.L":     "Stock exchange operator and financial data provider",
+    "PRU.L":      "Life insurance and asset management across Asia and Africa",
+    "STJ.L":      "Wealth management and financial advice",
+    "MKS.L":      "Clothing, food, and homeware retailer",
+    "NXT.L":      "Clothing and homeware retailer",
+    "JD.L":       "Sportswear and trainers retailer",
+    "ICP.L":      "Specialist asset management and lending",
+    "ATG.L":      "Online auction marketplaces for specialist goods",
+    "BYIT.L":     "Software licensing and IT reseller services",
+    "DPLM.L":     "Specialist technical products distribution",
+    "WOSG.L":     "Luxury watch retailer — Rolex, Patek Philippe",
+    "HFG.L":      "Meat and seafood processing for supermarkets",
+    "AAPL":       "iPhones, Macs, and consumer technology",
+    "MSFT":       "Windows, Office, and Azure cloud computing",
+    "NVDA":       "Graphics chips and AI computing hardware",
+    "AMZN":       "Online retail and AWS cloud computing",
+    "GOOGL":      "Search engine, advertising, and cloud computing",
+    "META":       "Facebook, Instagram, and WhatsApp",
+    "TSLA":       "Electric vehicles and energy storage",
+    "BRK-B":      "Diversified holding company — insurance, rail, energy",
+    "JPM":        "Largest US bank — consumer and investment banking",
+    "JNJ":        "Pharmaceuticals and medical devices",
+    "XOM":        "Oil and gas exploration and refining",
+    "V":          "Global payments network",
+    "UNH":        "Health insurance and care services",
+    "PG":         "Household brands — Gillette, Pampers, Tide",
+    "MA":         "Global payments network",
+    "LLY":        "Pharmaceuticals — diabetes and obesity treatments",
+    "AVGO":       "Semiconductors and infrastructure software",
+    "CVX":        "Oil and gas exploration and refining",
+    "HD":         "Home improvement retailer",
+    "COST":       "Membership-based warehouse retailer",
+    "MRK":        "Pharmaceuticals and vaccines",
+    "ABBV":       "Pharmaceuticals — immunology and oncology",
+    "PEP":        "Snacks and beverages — Pepsi, Lay's, Gatorade",
+    "KO":         "Soft drinks — Coca-Cola, Sprite, Fanta",
+    "MCD":        "Fast food restaurant chain",
+    "NKE":        "Sportswear and footwear",
+    "DIS":        "Film studios, theme parks, and streaming",
+    "NFLX":       "Streaming video entertainment",
+    "CRM":        "Cloud-based customer relationship software",
+    "ADBE":       "Creative and document software — Photoshop, Acrobat",
+    "MC.PA":      "Luxury goods — Louis Vuitton, Dior, Moët",
+    "NESN.SW":    "Food and beverage brands worldwide",
+    "ROG.SW":     "Pharmaceuticals and diagnostics",
+    "ASML.AS":    "Semiconductor manufacturing equipment",
+    "SAP.DE":     "Enterprise business software",
+    "NOVO-B.CO":  "Diabetes and obesity treatments",
+    "TTE.PA":     "Global oil, gas, and renewable energy",
+    "SIE.DE":     "Industrial automation and engineering",
+    "RMS.PA":     "Luxury leather goods and fashion",
+    "RACE.MI":    "Luxury sports cars",
+    "SU.PA":      "Electrical equipment and automation",
+    "OR.PA":      "Cosmetics and beauty brands",
+    "7203.T":     "World's largest car manufacturer",
+    "005930.KS":  "Semiconductors, smartphones, and electronics",
+    "TSM":        "World's largest contract chip manufacturer",
+    "SONY":       "Electronics, gaming (PlayStation), and entertainment",
+}
+
+# ── Defensive assets (always included alongside screened stocks) ─────────────
+# (key, display_name, ticker_or_None, description)
+
+DEFENSIVE_ASSETS = [
+    ("GOLD",  "Gold",                 "SGLN.L", "Physical gold — historically holds value during market crises and periods of high inflation"),
+    ("GILTS", "UK Government Bonds",  "IGLT.L", "Loans to the UK government — lower risk, pays steady income, tends to rise when stock markets fall"),
+    ("UKRE",  "UK Real Estate",       "IUKP.L", "A basket of UK property companies — exposure to real estate without buying directly"),
+    ("CASH",  "Cash",                 None,      "Equivalent to a high-interest savings account — earns a steady return with no market exposure"),
+]
+_DEFENSIVE_KEYS = [row[0] for row in DEFENSIVE_ASSETS]
 
 RISK_FREE_RATE = 0.045   # UK gilt yield ~4.5%
 TRADING_DAYS   = 252
-SECTOR_CAP     = 0.30
 TRAIN_DAYS     = 2 * TRADING_DAYS   # 2-year training window
 TEST_DAYS      = TRADING_DAYS // 2  # 6-month test window
 YEARS_DATA     = 5
-
-# ── Global multi-asset definitions ───────────────────────────────────────────
-
-GLOBAL_ASSET_DEFS = [
-    # (key,       display_name,              ticker,     region,       category)
-    ("UK_EQ",  "UK Equities",              None,        "UK",         "Growth"),
-    ("CSPX.L", "US Equities",              "CSPX.L",   "USA",        "Growth"),
-    ("IMEU.L", "European Equities",        "IMEU.L",   "Europe",     "Growth"),
-    ("IJPA.L", "Japanese Equities",        "IJPA.L",   "Japan",      "Growth"),
-    ("EMIM.L", "Emerging Markets",         "EMIM.L",   "Global EM",  "Growth"),
-    ("WLDS.L", "Global Small Cap",         "WLDS.L",   "Global",     "Growth"),
-    ("IGLT.L", "UK Government Bonds",      "IGLT.L",   "UK",         "Defensive"),
-    ("IBTM.L", "US Treasury Bonds",        "IBTM.L",   "USA",        "Defensive"),
-    ("CORP.L", "Global Corporate Bonds",   "CORP.L",   "Global",     "Defensive"),
-    ("IGIL.L", "Inflation-Linked Bonds",   "IGIL.L",   "Global",     "Defensive"),
-    ("SGLN.L", "Gold",                     "SGLN.L",   "Global",     "Defensive"),
-    ("REIT.L", "Global Real Estate",       "REIT.L",   "Global",     "Diversifier"),
-    ("CMOD.L", "Commodities",              "CMOD.L",   "Global",     "Diversifier"),
-    ("CASH",   "Cash",                     None,        None,         "Defensive"),
-]
-
-GLOBAL_ASSET_DESCRIPTIONS = {
-    "CSPX.L": "Shares in America's largest companies — Apple, Microsoft, Amazon and the S&P 500",
-    "IMEU.L": "Shares across France, Germany, Switzerland, and the rest of continental Europe",
-    "IJPA.L": "Shares in Japan's largest companies — exposure to the world's third largest economy",
-    "EMIM.L": "Shares in fast-growing economies including China, India, Brazil, and South Korea",
-    "WLDS.L": "Smaller companies worldwide — higher growth potential but more volatile than large caps",
-    "IGLT.L": "Loans to the UK government — lower risk, tends to rise when stock markets fall",
-    "IBTM.L": "Loans to the US government — the world's safest asset, dollar-denominated",
-    "CORP.L": "Loans to large companies worldwide — higher yield than government bonds, moderate risk",
-    "IGIL.L": "Government bonds whose value rises with inflation — protection against rising prices eroding returns",
-    "SGLN.L": "Physical gold — historically holds value during crises, inflation, and periods of dollar weakness",
-    "REIT.L": "Property companies and REITs across the US, Europe, and Asia — income and diversification",
-    "CMOD.L": "Oil, metals, and agricultural products — tends to perform well during inflationary periods",
-    "CASH":   "Equivalent to a high-interest savings account — earns 4.2% with no market exposure",
-    "UK_EQ":  "Your selected FTSE stocks — see breakdown below",
-}
-
-_GLOBAL_EQUITY_KEYS = {"UK_EQ", "CSPX.L", "IMEU.L", "IJPA.L", "EMIM.L", "WLDS.L"}
-_GLOBAL_BOND_KEYS   = {"IGLT.L", "IBTM.L", "CORP.L", "IGIL.L"}
-_GLOBAL_UK_KEYS     = {"UK_EQ", "IGLT.L"}
-_GLOBAL_HARD_CAPS   = {"SGLN.L": 0.15, "CMOD.L": 0.15, "REIT.L": 0.15}
+SCREEN_TARGET_N = 15
 
 # ── Step 1: Download prices ───────────────────────────────────────────────────
 
@@ -116,27 +247,18 @@ def download_benchmark() -> pd.Series:
 
 
 @st.cache_data(show_spinner=False)
-def download_global_etf_prices() -> pd.DataFrame:
-    etf_tickers = [row[2] for row in GLOBAL_ASSET_DEFS if row[2] is not None]
+def download_defensive_prices() -> pd.DataFrame:
+    tickers = [row[2] for row in DEFENSIVE_ASSETS if row[2] is not None]
     end   = date.today()
     start = end - timedelta(days=YEARS_DATA * 365 + 60)
     raw   = yf.download(
-        tickers=etf_tickers, start=start.isoformat(), end=end.isoformat(),
+        tickers=tickers, start=start.isoformat(), end=end.isoformat(),
         auto_adjust=True, progress=False,
     )
     prices = raw["Close"]
     if isinstance(prices, pd.Series):
-        prices = prices.to_frame(name=etf_tickers[0])
+        prices = prices.to_frame(name=tickers[0])
     return prices.dropna(how="all").dropna(axis=1, how="all")
-
-
-@st.cache_data(show_spinner=False)
-def download_swda() -> pd.Series:
-    end   = date.today()
-    start = end - timedelta(days=YEARS_DATA * 365 + 60)
-    raw   = yf.download("SWDA.L", start=start.isoformat(), end=end.isoformat(),
-                        auto_adjust=True, progress=False)
-    return raw["Close"].squeeze().dropna()
 
 
 def make_cash_returns(index: pd.DatetimeIndex) -> pd.Series:
@@ -157,76 +279,73 @@ def build_statistics(returns: pd.DataFrame):
     cov_matrix   = returns.cov()  * TRADING_DAYS
     return mean_returns, cov_matrix
 
-# ── Step 4: Optimiser ─────────────────────────────────────────────────────────
+# ── Stock screening ────────────────────────────────────────────────────────────
 
-def _build_constraints(tickers: list, sector_map: dict) -> list:
+def screen_stocks(returns: pd.DataFrame, target_n: int = SCREEN_TARGET_N):
+    """
+    Greedily build a high-Sharpe, low-correlation subset of the full stock universe.
+    Starts with the single best individual Sharpe ratio, then repeatedly adds whichever
+    remaining stock most improves the equal-weight portfolio Sharpe of the selected set.
+    Returns (selected_tickers, individual_sharpe_series).
+    """
+    mean_ann = returns.mean() * TRADING_DAYS
+    vol_ann  = returns.std()  * np.sqrt(TRADING_DAYS)
+    sharpe   = ((mean_ann - RISK_FREE_RATE) / vol_ann).replace([np.inf, -np.inf], np.nan).dropna()
+    candidates = list(sharpe.sort_values(ascending=False).index)
+    if not candidates:
+        return [], sharpe
+
+    selected  = [candidates[0]]
+    remaining = candidates[1:]
+
+    def port_sharpe(tickers):
+        sub = returns[tickers]
+        w   = np.ones(len(tickers)) / len(tickers)
+        r   = sub @ w
+        ar, av = r.mean() * TRADING_DAYS, r.std() * np.sqrt(TRADING_DAYS)
+        return (ar - RISK_FREE_RATE) / av if av > 0 else -np.inf
+
+    n_target = min(target_n, len(candidates))
+    while len(selected) < n_target and remaining:
+        best_c, best_s = None, -np.inf
+        for c in remaining:
+            s = port_sharpe(selected + [c])
+            if s > best_s:
+                best_s, best_c = s, c
+        selected.append(best_c)
+        remaining.remove(best_c)
+
+    return selected, sharpe
+
+# ── Step 4: Optimiser (stocks + 4 defensive assets, single stage) ────────────
+
+def _build_constraints(tickers: list, stock_set: set) -> list:
     constraints = [{"type": "eq", "fun": lambda w: np.sum(w) - 1.0}]
-    sector_indices = {}
-    for i, t in enumerate(tickers):
-        sector_indices.setdefault(sector_map[t], []).append(i)
-    for idx_list in sector_indices.values():
-        constraints.append({
-            "type": "ineq",
-            "fun": lambda w, il=idx_list: SECTOR_CAP - np.sum(w[il]),
-        })
+    eq_idx = [i for i, t in enumerate(tickers) if t in stock_set]
+    if eq_idx:
+        constraints.append({"type": "ineq", "fun": lambda w, idx=eq_idx: 0.60 - np.sum(w[idx])})
     return constraints
 
 
-def _minimise(objective, constraints, n: int, extra=None) -> np.ndarray:
-    result = minimize(
-        objective,
-        x0          = np.ones(n) / n,
-        method      = "SLSQP",
-        bounds      = [(0.0, 1.0)] * n,
-        constraints = constraints + (extra or []),
-        options     = {"maxiter": 1000, "ftol": 1e-9},
-    )
-    return result.x
-
-
-def run_optimiser(
-    mean_returns: pd.Series,
-    cov_matrix:   pd.DataFrame,
-    tickers:      list,
-    sector_map:   dict,
-    risk_level:   int,
-) -> pd.Series:
-    n   = len(tickers)
-    mu  = mean_returns.values
-    cov = cov_matrix.values
-    con = _build_constraints(tickers, sector_map)
-
-    def portfolio_vol(w):
-        return float(np.sqrt(w @ cov @ w))
-
-    def neg_sharpe(w):
-        vol = float(np.sqrt(w @ cov @ w))
-        return -(float(w @ mu) - RISK_FREE_RATE) / vol if vol > 1e-10 else 0.0
-
-    if risk_level == 1:
-        raw = _minimise(portfolio_vol, con, n)
-    elif risk_level >= 100:
-        raw = _minimise(neg_sharpe, con, n)
-    else:
-        w_min = _minimise(portfolio_vol, con, n)
-        w_max = _minimise(neg_sharpe,    con, n)
-        r_min, r_max = float(w_min @ mu), float(w_max @ mu)
-        if r_max <= r_min:
-            raw = w_max
+def _asset_bounds(tickers: list, stock_set: set) -> list:
+    bounds = []
+    for t in tickers:
+        if t == "GOLD":
+            bounds.append((0.0, 0.20))
+        elif t == "GILTS":
+            bounds.append((0.0, 0.30))
+        elif t == "UKRE":
+            bounds.append((0.0, 0.15))
+        elif t == "CASH":
+            bounds.append((0.05, 1.0))
+        elif t in stock_set:
+            bounds.append((0.0, 0.15))
         else:
-            t      = (risk_level - 1) / 99.0
-            target = r_min + t * (r_max - r_min)
-            raw    = _minimise(portfolio_vol, con, n, extra=[
-                {"type": "ineq", "fun": lambda w: float(w @ mu) - target}
-            ])
-
-    clipped = np.clip(raw, 0.0, None)
-    return pd.Series(clipped / clipped.sum(), index=tickers)
+            bounds.append((0.0, 1.0))
+    return bounds
 
 
-# ── Global multi-asset optimiser ──────────────────────────────────────────────
-
-def _minimise_global(objective, constraints, bounds, extra=None) -> np.ndarray:
+def _minimise(objective, constraints, bounds, extra=None) -> np.ndarray:
     result = minimize(
         objective,
         x0          = np.ones(len(bounds)) / len(bounds),
@@ -238,43 +357,17 @@ def _minimise_global(objective, constraints, bounds, extra=None) -> np.ndarray:
     return result.x
 
 
-def _build_global_constraints(keys: list) -> list:
-    constraints = [{"type": "eq", "fun": lambda w: np.sum(w) - 1.0}]
-    eq_idx = [i for i, k in enumerate(keys) if k in _GLOBAL_EQUITY_KEYS]
-    uk_idx = [i for i, k in enumerate(keys) if k in _GLOBAL_UK_KEYS]
-    if eq_idx:
-        constraints.append({"type": "ineq", "fun": lambda w, idx=eq_idx: 0.50 - np.sum(w[idx])})
-    if uk_idx:
-        constraints.append({"type": "ineq", "fun": lambda w, idx=uk_idx: 0.40 - np.sum(w[idx])})
-    return constraints
-
-
-def _global_bounds(keys: list) -> list:
-    bounds = []
-    for k in keys:
-        if k == "CASH":
-            bounds.append((0.05, 1.0))
-        elif k in _GLOBAL_EQUITY_KEYS:
-            bounds.append((0.0, 0.20))
-        elif k in _GLOBAL_BOND_KEYS:
-            bounds.append((0.0, 0.25))
-        elif k in _GLOBAL_HARD_CAPS:
-            bounds.append((0.0, _GLOBAL_HARD_CAPS[k]))
-        else:
-            bounds.append((0.0, 1.0))
-    return bounds
-
-
-def run_global_optimiser(
+def run_optimiser(
     mean_returns: pd.Series,
-    cov_matrix: pd.DataFrame,
-    keys: list,
-    risk_level: int,
+    cov_matrix:   pd.DataFrame,
+    tickers:      list,
+    stock_set:    set,
+    risk_level:   int,
 ) -> pd.Series:
     mu  = mean_returns.values
     cov = cov_matrix.values
-    con = _build_global_constraints(keys)
-    bnd = _global_bounds(keys)
+    con = _build_constraints(tickers, stock_set)
+    bnd = _asset_bounds(tickers, stock_set)
 
     def portfolio_vol(w):
         return float(np.sqrt(w @ cov @ w))
@@ -284,25 +377,25 @@ def run_global_optimiser(
         return -(float(w @ mu) - RISK_FREE_RATE) / vol if vol > 1e-10 else 0.0
 
     if risk_level == 1:
-        raw = _minimise_global(portfolio_vol, con, bnd)
+        raw = _minimise(portfolio_vol, con, bnd)
     elif risk_level >= 100:
-        raw = _minimise_global(neg_sharpe, con, bnd)
+        raw = _minimise(neg_sharpe, con, bnd)
     else:
-        w_min = _minimise_global(portfolio_vol, con, bnd)
-        w_max = _minimise_global(neg_sharpe,    con, bnd)
+        w_min = _minimise(portfolio_vol, con, bnd)
+        w_max = _minimise(neg_sharpe,    con, bnd)
         r_min, r_max = float(w_min @ mu), float(w_max @ mu)
         if r_max <= r_min:
             raw = w_max
         else:
             t      = (risk_level - 1) / 99.0
             target = r_min + t * (r_max - r_min)
-            raw    = _minimise_global(portfolio_vol, con, bnd, extra=[
+            raw    = _minimise(portfolio_vol, con, bnd, extra=[
                 {"type": "ineq", "fun": lambda w: float(w @ mu) - target}
             ])
 
     clipped = np.clip(raw, 0.0, None)
     total   = clipped.sum()
-    return pd.Series(clipped / total if total > 0 else clipped, index=keys)
+    return pd.Series(clipped / total if total > 0 else clipped, index=tickers)
 
 # ── Step 6: Performance metrics ───────────────────────────────────────────────
 
@@ -324,7 +417,7 @@ def performance_metrics(daily_returns: pd.Series) -> dict:
 
 # ── Step 5: Rolling backtest ──────────────────────────────────────────────────
 
-def rolling_backtest(returns, tickers, sector_map, risk_level, benchmark_prices):
+def rolling_backtest(returns, tickers, stock_set, risk_level, benchmark_prices):
     opt_daily, eq_daily = [], []
     n_total, start = len(returns), 0
 
@@ -337,7 +430,7 @@ def rolling_backtest(returns, tickers, sector_map, risk_level, benchmark_prices)
             continue
         mu, cov = build_statistics(train[valid])
         try:
-            w = run_optimiser(mu, cov, valid, sector_map, risk_level)
+            w = run_optimiser(mu, cov, valid, stock_set, risk_level)
         except Exception:
             start += TEST_DAYS
             continue
@@ -377,6 +470,20 @@ def get_market_caps(tickers: tuple) -> pd.Series:
     return s / total
 
 
+def get_combined_market_weights(stock_tickers: list, asset_keys: list) -> pd.Series:
+    """Market-cap weights for stocks, blended with a flat baseline share for each defensive asset."""
+    stock_caps = get_market_caps(tuple(sorted(stock_tickers)))
+    asset_share = 0.05
+    total_asset_share = asset_share * len(asset_keys)
+    stock_share = max(0.0, 1.0 - total_asset_share)
+    weights = {t: float(stock_caps.get(t, 0)) * stock_share for t in stock_tickers}
+    for a in asset_keys:
+        weights[a] = asset_share
+    s = pd.Series(weights, dtype=float)
+    total = s.sum()
+    return s / total if total > 0 else s
+
+
 def black_litterman_returns(
     mean_returns: pd.Series,
     cov_matrix: pd.DataFrame,
@@ -395,7 +502,7 @@ def black_litterman_returns(
     return pd.Series(pi + RISK_FREE_RATE, index=tickers)
 
 
-def rolling_backtest_bl(returns, tickers, sector_map, risk_level, benchmark_prices, market_cap_weights):
+def rolling_backtest_bl(returns, tickers, stock_set, risk_level, benchmark_prices, market_cap_weights):
     """Like rolling_backtest but uses Black-Litterman expected returns in each window."""
     opt_daily, eq_daily = [], []
     n_total, start = len(returns), 0
@@ -413,7 +520,7 @@ def rolling_backtest_bl(returns, tickers, sector_map, risk_level, benchmark_pric
         w_mkt = w_mkt / s if s > 0 else pd.Series(1.0 / len(valid), index=valid)
         mu_bl = black_litterman_returns(mu_hist, cov, w_mkt)
         try:
-            w = run_optimiser(mu_bl, cov, valid, sector_map, risk_level)
+            w = run_optimiser(mu_bl, cov, valid, stock_set, risk_level)
         except Exception:
             start += TEST_DAYS
             continue
@@ -433,55 +540,6 @@ def rolling_backtest_bl(returns, tickers, sector_map, risk_level, benchmark_pric
 
     cum = lambda r: (1 + r).cumprod()
     return cum(opt_r), cum(eq_r), cum(bench_r)
-
-
-# ── Global rolling backtests ──────────────────────────────────────────────────
-
-def _rolling_global_core(global_returns, keys, risk_level, benchmark_prices, bl_mkt_w=None):
-    """Shared rolling-window logic for global MVO and BL modes."""
-    opt_daily, eq_daily = [], []
-    n_total, start = len(global_returns), 0
-
-    while start + TRAIN_DAYS + TEST_DAYS <= n_total:
-        train = global_returns.iloc[start : start + TRAIN_DAYS]
-        test  = global_returns.iloc[start + TRAIN_DAYS : start + TRAIN_DAYS + TEST_DAYS]
-        valid = [k for k in keys if k in train.columns]
-        if len(valid) < 2:
-            start += TEST_DAYS
-            continue
-        mu, cov = build_statistics(train[valid])
-        if bl_mkt_w is not None:
-            w_mkt = bl_mkt_w.reindex(valid).fillna(0)
-            s = w_mkt.sum()
-            w_mkt = w_mkt / s if s > 0 else pd.Series(1.0 / len(valid), index=valid)
-            mu = black_litterman_returns(mu, cov, w_mkt)
-        try:
-            w = run_global_optimiser(mu, cov, valid, risk_level)
-        except Exception:
-            start += TEST_DAYS
-            continue
-        opt_daily.append(test[valid] @ w.values)
-        eq_daily.append(test[valid].mean(axis=1))
-        start += TEST_DAYS
-
-    if not opt_daily:
-        return pd.Series(dtype=float), pd.Series(dtype=float), pd.Series(dtype=float)
-
-    opt_r   = pd.concat(opt_daily)
-    eq_r    = pd.concat(eq_daily)
-    bench_r = benchmark_prices.pct_change().dropna()
-    common  = opt_r.index.intersection(eq_r.index).intersection(bench_r.index)
-    opt_r, eq_r, bench_r = opt_r.loc[common], eq_r.loc[common], bench_r.loc[common]
-    cum = lambda r: (1 + r).cumprod()
-    return cum(opt_r), cum(eq_r), cum(bench_r)
-
-
-def rolling_backtest_global(global_returns, keys, risk_level, benchmark_prices):
-    return _rolling_global_core(global_returns, keys, risk_level, benchmark_prices)
-
-
-def rolling_backtest_global_bl(global_returns, keys, risk_level, benchmark_prices, market_cap_weights):
-    return _rolling_global_core(global_returns, keys, risk_level, benchmark_prices, bl_mkt_w=market_cap_weights)
 
 
 def volatility_regime(benchmark_prices: pd.Series) -> str:
@@ -547,7 +605,6 @@ def generate_method_explanation(
     bl_vol      = bl_bt.get("Annual Volatility", 0.0)
     comb_vol    = comb_bt.get("Annual Volatility", 0.0)
 
-    # Reconstruct blend alpha — mirrors blend_weights logic exactly
     s_mvo      = max(mvo_sharpe, 0.0)
     s_bl       = max(bl_sharpe, 0.0)
     base_alpha = 0.5 if (s_mvo + s_bl) <= 0 else s_mvo / (s_mvo + s_bl)
@@ -560,7 +617,6 @@ def generate_method_explanation(
     mvo_pct   = round(adj_alpha * 100)
     bl_pct    = 100 - mvo_pct
 
-    # Top 2 stocks by MVO weight (for Standard narrative)
     tickers      = list(mvo_weights.index)
     sorted_ticks = sorted(tickers, key=lambda t: float(mvo_weights[t]), reverse=True)
     top2_names   = [names.get(t, t) for t in sorted_ticks[:2]]
@@ -574,7 +630,6 @@ def generate_method_explanation(
     spread_phrase  = "a more evenly spread allocation" if bl_more_spread else "a similarly concentrated allocation"
     bl_robustness  = "more robust when market conditions shifted" if bl_sharpe > mvo_sharpe else "not dramatically more robust to shifting conditions"
 
-    # ── Part 2a: Standard ─────────────────────────────────────────────────────
     top_stock_text = top2_names[0] + (f" and {top2_names[1]}" if len(top2_names) > 1 else "")
     part2_std = (
         f"The **historically-informed approach (Standard)** produced {mvo_ret*100:.1f}% annual return at "
@@ -584,7 +639,6 @@ def generate_method_explanation(
         f"because they had the strongest recent track record — a strategy that {mvo_verdict}."
     )
 
-    # ── Part 2b: BL ──────────────────────────────────────────────────────────
     part2_bl = (
         f"The **market-informed approach (Market-Informed)** produced {bl_ret*100:.1f}% annual return at "
         f"{bl_vol*100:.1f}% volatility out of sample, with a Sharpe ratio of {bl_sharpe:.2f}. "
@@ -593,7 +647,6 @@ def generate_method_explanation(
         f"making it {bl_robustness}."
     )
 
-    # ── Part 2c: Combined ────────────────────────────────────────────────────
     regime_adj_applied = abs(base_alpha - adj_alpha) > 0.01
     if regime_adj_applied:
         base_mvo_pct = round(base_alpha * 100)
@@ -630,7 +683,6 @@ def generate_method_explanation(
         f"market-informed method. {regime_adj_note}"
     )
 
-    # ── Part 3: Why we chose this method ─────────────────────────────────────
     plain_names = {
         "MVO":      "historically-informed (Standard)",
         "BL":       "market-informed (Market-Informed)",
@@ -686,7 +738,6 @@ def generate_method_explanation(
         f"{margin_sent} {driver_sent}"
     )
 
-    # ── Part 4: Combined construction detail (only shown if Combined won) ────
     if winner != "Combined":
         return [part2_std, part2_bl, part2_comb, part3_why, None]
 
@@ -754,140 +805,68 @@ def generate_method_explanation(
     return [part2_std, part2_bl, part2_comb, part3_why, part4_detail]
 
 
-# ── Global "Why split this way?" paragraphs ───────────────────────────────────
+# ── New "Why split this way?" / selection-rationale paragraphs ───────────────
 
-def generate_geographic_diversification_para(asset_weights: dict) -> str:
-    us  = asset_weights.get("CSPX.L", 0)
-    eu  = asset_weights.get("IMEU.L", 0)
-    jp  = asset_weights.get("IJPA.L", 0)
-    em  = asset_weights.get("EMIM.L", 0)
-    sc  = asset_weights.get("WLDS.L", 0)
-    uke = asset_weights.get("UK_EQ",  0)
-    sentences = []
+def generate_defensive_role_paragraph(weights: dict) -> str:
+    gold  = weights.get("GOLD", 0.0)
+    gilts = weights.get("GILTS", 0.0)
+    ukre  = weights.get("UKRE", 0.0)
+    cash  = weights.get("CASH", 0.0)
+    total = gold + gilts + ukre + cash
+    equity_total = max(0.0, 1.0 - total)
 
-    if us > 0.15:
-        sentences.append(
-            "The US allocation reflects the dominance of American companies in global growth — the S&P 500 "
-            "has historically driven global equity returns, and underweighting it would be a strong active "
-            "bet against the world's largest economy."
-        )
-    elif us > 0.05:
-        sentences.append(
-            f"A {us*100:.0f}% allocation to US equities provides exposure to the world's most innovative "
-            "large-cap companies while keeping concentration risk below a purely US-focused approach."
-        )
-
-    if eu > 0.05:
-        sentences.append(
-            f"The {eu*100:.0f}% in European equities adds industrial, consumer, and financial exposure "
-            "across France, Germany, and Switzerland — economies with different economic cycles from the UK and US."
-        )
-
-    if jp > 0.05:
-        sentences.append(
-            "Japan provides exposure to a developed economy with low correlation to US and European markets, "
-            "adding geographic diversification beyond the Anglosphere."
-        )
-
-    if em > 0.08:
-        sentences.append(
-            "Emerging markets provide exposure to faster-growing economies with different return drivers "
-            "from developed markets — they tend to underperform during global risk-off periods but "
-            "outperform during commodity booms and dollar weakness."
-        )
-    elif em > 0.05:
-        sentences.append(
-            f"A {em*100:.0f}% allocation to emerging markets adds exposure to higher-growth economies "
-            "including China, India, and Brazil, with different economic drivers from developed markets."
-        )
-
-    if sc > 0.05:
-        sentences.append(
-            f"The {sc*100:.0f}% in global small-cap stocks captures the historically higher long-run "
-            "returns of smaller companies, at the cost of higher short-term volatility."
-        )
-
-    if uke > 0.05:
-        sentences.append(
-            f"Your UK equity allocation ({uke*100:.0f}%) gives you direct exposure to the individual "
-            "FTSE companies you selected, while the rest of the portfolio diversifies globally."
-        )
-
-    if not sentences:
-        return ""
-    return "**Geographic diversification:** " + " ".join(sentences)
-
-
-def generate_defensive_positioning_para(asset_weights: dict) -> str:
-    bond_total = sum(asset_weights.get(k, 0) for k in ["IGLT.L", "IBTM.L", "CORP.L", "IGIL.L"])
-    gold       = asset_weights.get("SGLN.L", 0)
-    cash       = asset_weights.get("CASH",   0)
-    total_def  = bond_total + gold + cash
-
-    if total_def < 0.05:
+    if total < 0.03:
         return ""
 
     parts = []
-    if bond_total > 0.02:
-        parts.append(f"{bond_total*100:.0f}% in bonds")
-    if gold > 0.02:
+    if gold > 0.01:
         parts.append(f"{gold*100:.0f}% in gold")
-    if cash > 0.02:
+    if gilts > 0.01:
+        parts.append(f"{gilts*100:.0f}% in UK government bonds")
+    if ukre > 0.01:
+        parts.append(f"{ukre*100:.0f}% in UK real estate")
+    if cash > 0.01:
         parts.append(f"{cash*100:.0f}% in cash")
-    components = ", ".join(parts) if parts else f"{total_def*100:.0f}% in defensive assets"
-
-    if total_def >= 0.40:
-        tail = (
-            "In a significant market downturn, these defensive holdings are expected to hold their value "
-            "or rise while equities fall, sharply limiting how far the overall portfolio can drop — "
-            "at the cost of slower growth in normal conditions."
-        )
-    elif total_def >= 0.20:
-        tail = (
-            "In a downturn, these provide a meaningful cushion — reducing but not eliminating the "
-            "portfolio's sensitivity to equity market falls."
-        )
-    else:
-        tail = (
-            "This is a relatively light defensive allocation — the portfolio remains primarily "
-            "driven by equity market performance."
-        )
+    components = ", ".join(parts) if parts else f"{total*100:.0f}% in defensive assets"
 
     return (
-        f"**Defensive positioning:** The portfolio holds {components} "
-        f"({total_def*100:.0f}% total in non-equity assets). {tail}"
+        f"**The role of your defensive assets:** Alongside your {equity_total*100:.0f}% in stocks, the model holds "
+        f"{components} ({total*100:.0f}% of the portfolio in total). Gold, government bonds, and real estate tend to "
+        "behave differently from stocks — bonds typically rise when stock markets fall as investors seek safety, "
+        "gold often holds its value during crises and inflation, and property adds an income-generating asset with "
+        "its own cycle. Together with cash, these act as a buffer: when equity markets fall sharply, these holdings "
+        "are designed to cushion the blow, smoothing out the ride in exchange for some upside in calmer years."
     )
 
 
-# ── Plain-English stock descriptions ─────────────────────────────────────────
+def generate_selection_rationale_paragraph(
+    selected_stocks: list,
+    sector_map: dict,
+    weights: "pd.Series",
+    n_considered: int,
+    defensive_weights: dict,
+) -> str:
+    sector_counts: dict = {}
+    for t in selected_stocks:
+        sec = sector_map[t]
+        sector_counts[sec] = sector_counts.get(sec, 0) + 1
+    top_sectors = sorted(sector_counts.items(), key=lambda x: x[1], reverse=True)[:2]
+    sector_txt  = " and ".join(f"{s} ({c} stock{'s' if c != 1 else ''})" for s, c in top_sectors)
 
-STOCK_DESCRIPTIONS = {
-    "AZN.L":   "Prescription medicines and cancer treatments",
-    "GSK.L":   "Vaccines, antibiotics, and specialist medicines",
-    "ULVR.L":  "Everyday brands — Dove, Ben & Jerry's, Marmite, Persil",
-    "DGE.L":   "Premium drinks and spirits — Guinness, Johnnie Walker, Baileys",
-    "BATS.L":  "Cigarettes and next-generation nicotine products (Vuse, Velo)",
-    "TSCO.L":  "UK's largest supermarket chain",
-    "IMB.L":   "Cigarettes and heated tobacco — Winston, Davidoff, Blu",
-    "HSBA.L":  "Global banking and financial services",
-    "LLOY.L":  "High street banking, mortgages, and insurance",
-    "BARC.L":  "Retail banking, credit cards, and investment banking",
-    "STAN.L":  "Banking across Asia, Africa, and the Middle East",
-    "LGEN.L":  "Life insurance, pensions, and long-term savings",
-    "BP.L":    "Oil, gas, and renewable energy",
-    "SHEL.L":  "Global oil, gas, and low-carbon energy",
-    "RIO.L":   "Iron ore, copper, and critical minerals for clean energy",
-    "AAL.L":   "Mining — diamonds, platinum, coal, and copper",
-    "GLEN.L":  "Commodities trading and mining — cobalt, copper, zinc",
-    "NG.L":    "Gas and electricity networks in the UK and US",
-    "SSE.L":   "Electricity generation, networks, and home energy supply",
-    "BAE.L":   "Defence systems, military aircraft, and cyber security",
-    "RR.L":    "Jet engines, power systems, and defence technology",
-    "BT-A.L":  "Broadband, mobile (EE), and business telecommunications",
-    "VOD.L":   "Mobile and broadband across Europe and Africa",
-    "SGRO.L":  "Warehouses and logistics properties for e-commerce",
-    "LAND.L":  "Offices, retail parks, and commercial property in London",
-}
+    total_def = sum(defensive_weights.get(k, 0.0) for k in _DEFENSIVE_KEYS)
+
+    return (
+        f"From a universe of {n_considered} global stocks across the UK, US, Europe, and Asia, our screening "
+        f"process selected the {len(selected_stocks)} that, together, formed the most efficient combination of "
+        f"risk and return — prioritising stocks with strong individual track records that also moved differently "
+        f"from one another, so the portfolio isn't overly exposed to any single market move. "
+        f"{sector_txt} dominated the final selection, reflecting where the strongest combination of return and "
+        f"diversification was found in the current market environment. "
+        f"Alongside these stocks, gold, UK government bonds, UK real estate, and cash make up "
+        f"{total_def*100:.0f}% of the portfolio, balancing the growth potential of the selected stocks with assets "
+        "that tend to hold up better when equity markets fall."
+    )
+
 
 # ── Explanations ─────────────────────────────────────────────────────────────
 
@@ -905,7 +884,7 @@ def _move_desc(c: float, other_name: str) -> str:
 
 
 def generate_allocation_explanations(
-    weights, mean_returns, cov_matrix, returns, sector_map, names,
+    weights, mean_returns, cov_matrix, returns, names,
     compare_weights=None,
 ) -> list:
     tickers  = list(weights.index)
@@ -919,20 +898,15 @@ def generate_allocation_explanations(
     n       = len(tickers)
     corr    = returns[tickers].corr()
 
-    sector_totals: dict = {}
-    for t in tickers:
-        sector_totals[sector_map[t]] = sector_totals.get(sector_map[t], 0.0) + float(weights[t])
-
     blocks = []
 
     for t in held:
         w      = float(weights[t])
         name   = names[t]
         rank   = ranks[t]
-        sector = sector_map[t]
         peers  = [x for x in held if x != t]
-        cap_binding     = sector_totals.get(sector, 0.0) >= SECTOR_CAP - 0.015
-        strong_earner   = rank <= max(1, n // 2)
+        cap_binding   = w >= 0.15 - 0.015
+        strong_earner = rank <= max(1, n // 2)
 
         if peers:
             peer_corrs = {x: float(corr.loc[t, x]) for x in peers}
@@ -941,7 +915,7 @@ def generate_allocation_explanations(
             worst_peer = max(peer_corrs, key=peer_corrs.get)
             worst_c    = peer_corrs[worst_peer]
 
-        if w >= 0.18:
+        if w >= 0.10:
             if strong_earner and peers:
                 txt = (
                     f"**{name} — {w*100:.0f}%**\n\n"
@@ -964,11 +938,11 @@ def generate_allocation_explanations(
                 )
             if cap_binding:
                 txt += (
-                    f"\n\n> Your {sector} picks have hit the 30% safety limit — without it, "
-                    "the model would have put even more into this sector."
+                    "\n\n> This stock has hit the 15% maximum we allow for any single holding — "
+                    "without that limit, the model would have put even more here."
                 )
 
-        elif w >= 0.08:
+        elif w >= 0.05:
             if peers:
                 txt = (
                     f"**{name} — {w*100:.0f}%**\n\n"
@@ -1003,7 +977,6 @@ def generate_allocation_explanations(
             else:
                 txt = f"**{name} — {w*100:.0f}%**\n\nSmaller position based on historical performance."
 
-        # Note where the comparison method differs meaningfully
         if compare_weights is not None:
             cmp_w = float(compare_weights.get(t, 0))
             diff  = w - cmp_w
@@ -1038,21 +1011,6 @@ def generate_allocation_explanations(
         else:
             txt = f"**{name} — 0%**\n\nNot selected — ranked below the other options in historical performance."
         blocks.append(txt)
-
-    for sector, sw in sector_totals.items():
-        if sw >= SECTOR_CAP - 0.015:
-            held_in = [names[t] for t in held if sector_map[t] == sector]
-            if not held_in:
-                continue
-            txt = (
-                f"**Safety rule: {sector} capped at 30%**\n\n"
-                f"Your {sector} picks ({', '.join(held_in)}) have hit the 30% limit. "
-                f"Without this rule the model would put more into {sector} because it performed well historically. "
-                "But concentrating too heavily in one sector means that if something goes wrong across the whole area "
-                "— new regulation, falling prices, a downturn — it hits most of your money at once. "
-                "The cap keeps things properly spread."
-            )
-            blocks.append(txt)
 
     return blocks
 
@@ -1145,71 +1103,6 @@ def generate_backtest_verdict(opt_m: dict, eq_m: dict, bench_m: dict) -> list:
     return lines
 
 
-def generate_comparison_paragraph(
-    mvo_weights: pd.Series,
-    bl_weights: pd.Series,
-    names: dict,
-    mvo_m: dict,
-    bl_m: dict,
-) -> str:
-    tickers = list(mvo_weights.index)
-    diffs   = {t: float(bl_weights.get(t, 0)) - float(mvo_weights[t]) for t in tickers}
-    max_t   = max(diffs, key=lambda t: abs(diffs[t]))
-    max_diff = diffs[max_t]
-
-    both_high = [t for t in tickers if float(mvo_weights[t]) > 0.12 and float(bl_weights.get(t, 0)) > 0.12]
-
-    parts = []
-    if both_high:
-        agree_names = ", ".join(names[t] for t in both_high[:3])
-        parts.append(
-            f"Both methods agree on holding significant positions in {agree_names}, "
-            "suggesting these are reliably attractive within your selected universe — "
-            "their appeal holds whether you use historical returns or market-implied estimates."
-        )
-
-    if abs(max_diff) >= 0.05:
-        dir_w = "higher" if max_diff > 0 else "lower"
-        parts.append(
-            f"The biggest divergence is in {names[max_t]}: the market-informed method gives it "
-            f"{abs(max_diff)*100:.0f} percentage points {dir_w} than the standard approach. "
-            + (
-                "This suggests the market's collective estimate of its future returns is more optimistic "
-                "than its recent historical average — the market may be pricing in something the historical data doesn't capture."
-                if max_diff > 0 else
-                "This suggests the market sees its recent strong returns as less likely to persist — "
-                "the model moderates the allocation accordingly."
-            )
-        )
-
-    ret_diff = (mvo_m["Annual Return"] - bl_m["Annual Return"]) * 100
-    vol_diff = (mvo_m["Annual Volatility"] - bl_m["Annual Volatility"]) * 100
-    if abs(ret_diff) > 0.3:
-        if ret_diff > 0:
-            vol_note = (
-                "with similar volatility" if abs(vol_diff) < 0.5
-                else f"but with {abs(vol_diff):.1f}pp more volatility" if vol_diff > 0
-                else f"and {abs(vol_diff):.1f}pp less volatility"
-            )
-            parts.append(
-                f"The standard method targets {abs(ret_diff):.1f} percentage points more return per year "
-                f"({vol_note}). The market-informed method trades some return potential for a more balanced allocation."
-            )
-        else:
-            parts.append(
-                f"The market-informed method actually targets {abs(ret_diff):.1f} percentage points more "
-                "return per year — suggesting the market's equilibrium view is more optimistic than the "
-                "historical average for this particular selection."
-            )
-
-    parts.append(
-        "Where both methods agree on a stock's weight, you can be more confident the allocation reflects "
-        "something real rather than historical noise. Where they diverge significantly, treat the weighting "
-        "as more uncertain — neither past performance nor market consensus guarantees future returns."
-    )
-    return " ".join(parts)
-
-
 def _render_comparison(
     mvo_weights: pd.Series,
     bl_weights: pd.Series,
@@ -1224,7 +1117,7 @@ def _render_comparison(
     _divider()
     st.markdown(_h(2, "What each approach would have recommended"), unsafe_allow_html=True)
     st.markdown(
-        _sub("For context, here is how each approach performed on your specific stock selection and risk level — the allocation above uses whichever worked best."),
+        _sub("For context, here is how each approach performed on your specific selection and risk level — the allocation above uses whichever worked best."),
         unsafe_allow_html=True,
     )
 
@@ -1232,7 +1125,6 @@ def _render_comparison(
     col_colors = {"MVO": _SLATE, "BL": "#C4A882", "Combined": _SAGE}
     W_BG = "#1E2D45"
 
-    # ── Allocation table (3 methods, winner column highlighted) ───────────────
     tickers = list(mvo_weights.index)
     a_rows  = [
         (names[t], float(mvo_weights[t]), float(bl_weights.get(t, 0)), float(combined_w.get(t, 0)))
@@ -1240,7 +1132,7 @@ def _render_comparison(
         if float(mvo_weights[t]) >= 0.005 or float(bl_weights.get(t, 0)) >= 0.005 or float(combined_w.get(t, 0)) >= 0.005
     ]
 
-    ah = f'<th style="background:#1E2130;color:{_GREY};padding:10px 16px;text-align:left;font-weight:500;font-size:0.82rem;">Company</th>'
+    ah = f'<th style="background:#1E2130;color:{_GREY};padding:10px 16px;text-align:left;font-weight:500;font-size:0.82rem;">Investment</th>'
     for mk, label in col_info:
         is_w   = mk == winner
         bg_c   = W_BG if is_w else "#1E2130"
@@ -1266,7 +1158,6 @@ def _render_comparison(
         unsafe_allow_html=True,
     )
 
-    # ── Backtest performance table ────────────────────────────────────────────
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown(_h(3, "Backtest performance (out-of-sample)"), unsafe_allow_html=True)
 
@@ -1305,7 +1196,6 @@ def _render_comparison(
         unsafe_allow_html=True,
     )
 
-    # ── Chart: all three approaches + FTSE ───────────────────────────────────
     st.markdown("<br>", unsafe_allow_html=True)
     fig3 = go.Figure()
     fig3.add_trace(go.Scatter(
@@ -1449,8 +1339,8 @@ def _card(col, headline: str, number: str, sub: str) -> None:
     )
 
 
-def _render_table(rows: list) -> None:
-    cols = ["Company", "What they do", "Sector", "Your allocation", "How much to invest"]
+def _render_investment_table(rows: list) -> None:
+    cols = ["Investment", "What it is", "Type", "Your allocation", "Amount"]
     header = "".join(
         f'<th style="background:#1E2130;color:{_GREY};padding:10px 16px;'
         f'text-align:left;font-weight:500;font-size:0.82rem;white-space:nowrap;">{c}</th>'
@@ -1462,15 +1352,15 @@ def _render_table(rows: list) -> None:
         body += (
             f'<tr style="background:{bg};">'
             f'<td style="padding:10px 16px;color:{_TEXT};font-weight:500;white-space:nowrap;">'
-            f'{row["Company"]}</td>'
+            f'{row["Investment"]}</td>'
             f'<td style="padding:10px 16px;color:{_GREY};font-size:0.87rem;">'
-            f'{row["What they do"]}</td>'
+            f'{row["What it is"]}</td>'
             f'<td style="padding:10px 16px;color:{_GREY};white-space:nowrap;">'
-            f'{row["Sector"]}</td>'
+            f'{row["Type"]}</td>'
             f'<td style="padding:10px 16px;color:{_SLATE};font-weight:600;white-space:nowrap;">'
             f'{row["Your allocation"]}</td>'
             f'<td style="padding:10px 16px;color:{_TEXT};white-space:nowrap;">'
-            f'{row["How much to invest"]}</td>'
+            f'{row["Amount"]}</td>'
             f'</tr>'
         )
     st.markdown(
@@ -1480,6 +1370,25 @@ def _render_table(rows: list) -> None:
         f'</table></div>',
         unsafe_allow_html=True,
     )
+
+
+def _render_stock_screening_expander(selected_stocks: list, all_sharpes: pd.Series, weights: "pd.Series", names: dict) -> None:
+    with st.expander("Which stocks were considered and why?"):
+        rows = sorted(selected_stocks, key=lambda t: float(all_sharpes.get(t, 0)), reverse=True)
+        for t in rows:
+            s = float(all_sharpes.get(t, 0))
+            w = float(weights.get(t, 0))
+            if w > 0.01:
+                note = (
+                    f"Included with a {w*100:.1f}% allocation — its combination of historical return and "
+                    "diversification benefit earned it a place in the final portfolio."
+                )
+            else:
+                note = (
+                    "Screened in for its diversification benefit but received minimal allocation once optimised "
+                    "alongside the other stocks and defensive assets."
+                )
+            st.markdown(f"**{names.get(t, t)}** — Sharpe ratio {s:.2f}. {note}")
 
 
 def _trust_section(
@@ -1532,8 +1441,8 @@ def _trust_section(
 
     confidence = (
         "All figures shown are historical — past performance does not guarantee future results. "
-        "The model is most reliable for understanding how your selected stocks relate to each other — "
-        "which stocks balance each other out, which ones double up on the same risks — "
+        "The model is most reliable for understanding how your selected investments relate to each other — "
+        "which ones balance each other out, which ones double up on the same risks — "
         "rather than as a precise forecast of what any of them will return."
     )
 
@@ -1551,188 +1460,6 @@ def _trust_section(
         f'How much should you trust this?</p>'
         + _para("What the model got right:", got_right)
         + _para("What the model got wrong:", got_wrong)
-        + _para("The honest verdict:", verdict)
-        + _para("How confident should you be in these numbers?", confidence)
-        + '</div>'
-    )
-
-
-# ── Global allocation table (3 sections) ─────────────────────────────────────
-
-def _render_global_allocation_tables(
-    asset_weights: pd.Series,
-    stock_weights: pd.Series,
-    uk_eq_weight: float,
-    portfolio_size: int,
-    stock_names: dict,
-) -> None:
-    # ── Section 1 ────────────────────────────────────────────────────────────
-    st.markdown(_h(3, "Global asset allocation"), unsafe_allow_html=True)
-    cols1 = ["Asset Class", "Region", "What it is", "Your allocation", "Amount"]
-    h1 = "".join(
-        f'<th style="background:#1E2130;color:{_GREY};padding:10px 16px;'
-        f'text-align:left;font-weight:500;font-size:0.82rem;white-space:nowrap;">{c}</th>'
-        for c in cols1
-    )
-    b1 = ""
-    row_idx = 0
-    for key, name, ticker, region, category in GLOBAL_ASSET_DEFS:
-        w = float(asset_weights.get(key, 0))
-        if w < 0.0005:
-            continue
-        bg = "#161822" if row_idx % 2 == 0 else "#1A1D2B"
-        b1 += (
-            f'<tr style="background:{bg};">'
-            f'<td style="padding:10px 16px;color:{_TEXT};font-weight:500;white-space:nowrap;">{name}</td>'
-            f'<td style="padding:10px 16px;color:{_GREY};white-space:nowrap;">{region or "—"}</td>'
-            f'<td style="padding:10px 16px;color:{_GREY};font-size:0.87rem;">{GLOBAL_ASSET_DESCRIPTIONS.get(key,"")}</td>'
-            f'<td style="padding:10px 16px;color:{_SLATE};font-weight:600;white-space:nowrap;">{w*100:.1f}%</td>'
-            f'<td style="padding:10px 16px;color:{_TEXT};white-space:nowrap;">£{w*portfolio_size:,.0f}</td>'
-            f'</tr>'
-        )
-        row_idx += 1
-    st.markdown(
-        f'<div style="overflow-x:auto;border-radius:8px;border:1px solid {_BORDER};">'
-        f'<table style="width:100%;border-collapse:collapse;">'
-        f'<thead><tr>{h1}</tr></thead><tbody>{b1}</tbody></table></div>',
-        unsafe_allow_html=True,
-    )
-
-    # ── Section 2 ────────────────────────────────────────────────────────────
-    if uk_eq_weight > 0.0005 and not stock_weights.empty:
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown(_h(3, "Your UK equity holdings"), unsafe_allow_html=True)
-        cols2 = ["Stock", "What they do", "Share of UK equity", "Overall portfolio %", "Amount"]
-        h2 = "".join(
-            f'<th style="background:#1E2130;color:{_GREY};padding:10px 16px;'
-            f'text-align:left;font-weight:500;font-size:0.82rem;white-space:nowrap;">{c}</th>'
-            for c in cols2
-        )
-        b2 = ""
-        stock_rows = sorted(
-            [(t, float(stock_weights.get(t, 0))) for t in stock_weights.index
-             if float(stock_weights.get(t, 0)) > 0.005],
-            key=lambda x: x[1], reverse=True,
-        )
-        for i2, (tkr, sw) in enumerate(stock_rows):
-            overall_w = sw * uk_eq_weight
-            bg = "#161822" if i2 % 2 == 0 else "#1A1D2B"
-            b2 += (
-                f'<tr style="background:{bg};">'
-                f'<td style="padding:10px 16px;color:{_TEXT};font-weight:500;white-space:nowrap;">{stock_names.get(tkr,tkr)}</td>'
-                f'<td style="padding:10px 16px;color:{_GREY};font-size:0.87rem;">{STOCK_DESCRIPTIONS.get(tkr,"")}</td>'
-                f'<td style="padding:10px 16px;color:{_SLATE};font-weight:600;white-space:nowrap;">{sw*100:.1f}%</td>'
-                f'<td style="padding:10px 16px;color:{_SLATE};font-weight:600;white-space:nowrap;">{overall_w*100:.1f}%</td>'
-                f'<td style="padding:10px 16px;color:{_TEXT};white-space:nowrap;">£{overall_w*portfolio_size:,.0f}</td>'
-                f'</tr>'
-            )
-        st.markdown(
-            f'<div style="overflow-x:auto;border-radius:8px;border:1px solid {_BORDER};">'
-            f'<table style="width:100%;border-collapse:collapse;">'
-            f'<thead><tr>{h2}</tr></thead><tbody>{b2}</tbody></table></div>',
-            unsafe_allow_html=True,
-        )
-
-    # ── Section 3 ────────────────────────────────────────────────────────────
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown(_h(3, "Portfolio summary by category"), unsafe_allow_html=True)
-    cat_totals: dict = {"Growth": 0.0, "Defensive": 0.0, "Diversifier": 0.0, "Cash": 0.0}
-    for key, name, ticker, region, category in GLOBAL_ASSET_DEFS:
-        w = float(asset_weights.get(key, 0))
-        if key == "CASH":
-            cat_totals["Cash"] += w
-        else:
-            cat_totals[category] = cat_totals.get(category, 0.0) + w
-    cols3 = ["Category", "Total allocation", "Amount"]
-    h3 = "".join(
-        f'<th style="background:#1E2130;color:{_GREY};padding:10px 16px;'
-        f'text-align:left;font-weight:500;font-size:0.82rem;white-space:nowrap;">{c}</th>'
-        for c in cols3
-    )
-    b3 = ""
-    for i3, (cat, cw) in enumerate(cat_totals.items()):
-        bg = "#161822" if i3 % 2 == 0 else "#1A1D2B"
-        b3 += (
-            f'<tr style="background:{bg};">'
-            f'<td style="padding:10px 16px;color:{_TEXT};font-weight:500;">{cat}</td>'
-            f'<td style="padding:10px 16px;color:{_SLATE};font-weight:600;white-space:nowrap;">{cw*100:.1f}%</td>'
-            f'<td style="padding:10px 16px;color:{_TEXT};white-space:nowrap;">£{cw*portfolio_size:,.0f}</td>'
-            f'</tr>'
-        )
-    st.markdown(
-        f'<div style="overflow-x:auto;border-radius:8px;border:1px solid {_BORDER};">'
-        f'<table style="width:100%;border-collapse:collapse;">'
-        f'<thead><tr>{h3}</tr></thead><tbody>{b3}</tbody></table></div>',
-        unsafe_allow_html=True,
-    )
-
-
-def _trust_section_global(
-    om: dict, bm: dict,
-    g6040_m: dict, us8020_m: dict, eq14_m: dict,
-    n_test_periods: int,
-    portfolio_size: int,
-    opt_cum, bench_cum,
-) -> str:
-    opt_ret   = om["Annual Return"]
-    bench_ret = bm["Annual Return"]
-    opt_final = portfolio_size * float(opt_cum.iloc[-1])
-    bench_fin = portfolio_size * float(bench_cum.iloc[-1])
-
-    g6040_ret   = g6040_m.get("Annual Return",  0)
-    us8020_ret  = us8020_m.get("Annual Return",  0)
-    eq14_ret    = eq14_m.get("Annual Return",   0)
-
-    if opt_ret >= max(g6040_ret, us8020_ret, eq14_ret, bench_ret):
-        lead = (
-            f"The optimised portfolio beat all four benchmarks on a risk-adjusted basis, "
-            f"tested across {n_test_periods} separate 6-month periods the model had never seen."
-        )
-    elif opt_ret > bench_ret:
-        lead = (
-            f"The optimised portfolio beat the FTSE 100 by "
-            f"{(opt_ret-bench_ret)*100:.1f} percentage points per year "
-            f"across {n_test_periods} separate 6-month test periods."
-        )
-    else:
-        lead = (
-            f"The optimised portfolio trailed the FTSE 100 by "
-            f"{(bench_ret-opt_ret)*100:.1f} percentage points per year "
-            f"across {n_test_periods} separate 6-month test periods."
-        )
-
-    verdict = (
-        f"If you had followed this model's recommendations and rebalanced every 6 months, "
-        f"£{portfolio_size:,} would have become £{opt_final:,.0f} over the test period. "
-        f"The Global 60/40 benchmark would have produced "
-        f"£{portfolio_size*float(1+g6040_ret)**((n_test_periods*TEST_DAYS)/TRADING_DAYS):,.0f}, "
-        f"the US-heavy 80/20 "
-        f"£{portfolio_size*float(1+us8020_ret)**((n_test_periods*TEST_DAYS)/TRADING_DAYS):,.0f}, "
-        f"and an equal split across all 14 assets "
-        f"£{portfolio_size*float(1+eq14_ret)**((n_test_periods*TEST_DAYS)/TRADING_DAYS):,.0f}. "
-        "The model is a structured starting point for thinking about allocation, not a precise return forecast."
-    )
-
-    confidence = (
-        "All figures shown are historical — past performance does not guarantee future results. "
-        "The model is most reliable for understanding how different asset classes relate to each other — "
-        "which assets balance each other out, which double up on the same risks — "
-        "rather than as a precise forecast of what any of them will return."
-    )
-
-    def _para(label: str, body: str) -> str:
-        return (
-            f'<div style="border-left:3px solid {_BORDER};padding:12px 18px;margin-bottom:18px;">'
-            f'<span style="color:{_SLATE};font-weight:500;font-size:0.88rem;">{label} </span>'
-            f'<span style="color:{_DIMTEXT};font-size:0.88rem;line-height:1.65;">{body}</span>'
-            f'</div>'
-        )
-
-    return (
-        f'<div style="background:{_BG_BOX};border-radius:10px;padding:24px 28px;margin:20px 0;">'
-        f'<p style="color:{_TEXT};font-weight:500;font-size:1.05rem;margin:0 0 20px 0;">'
-        f'How much should you trust this?</p>'
-        + _para("What the benchmarks show:", lead)
         + _para("The honest verdict:", verdict)
         + _para("How confident should you be in these numbers?", confidence)
         + '</div>'
@@ -1761,26 +1488,6 @@ def main():
         )
 
         st.divider()
-
-        portfolio_type = st.radio(
-            "Portfolio type",
-            options=["UK Stocks only", "Global multi-asset portfolio (recommended)"],
-            index=1,
-        )
-
-        st.divider()
-
-        label_to_ticker = {f"{v[0]} ({k})": k for k, v in STOCK_UNIVERSE.items()}
-        defaults = [
-            "AstraZeneca (AZN.L)", "HSBC (HSBA.L)", "BP (BP.L)",
-            "Unilever (ULVR.L)", "GSK (GSK.L)", "Barclays (BARC.L)",
-        ]
-        selected_labels = st.multiselect(
-            "Which stocks do you want to include? (pick at least 3)",
-            options=sorted(label_to_ticker),
-            default=defaults,
-        )
-        selected_tickers = [label_to_ticker[l] for l in selected_labels]
 
         portfolio_size = st.number_input(
             "How much are you investing? (£)",
@@ -1815,349 +1522,103 @@ def main():
         )
 
     # ── Page header ───────────────────────────────────────────────────────────
-    if portfolio_type == "UK Stocks only":
-        st.markdown(_h(1, "Find the best way to split your investment across UK stocks"), unsafe_allow_html=True)
-        st.markdown(_sub("Tell us what you want to invest in and how much risk you're comfortable with. We'll do the maths."), unsafe_allow_html=True)
-    else:
-        st.markdown(_h(1, "Build a globally diversified multi-asset investment portfolio"), unsafe_allow_html=True)
-        st.markdown(_sub("Tell us how much risk you're comfortable with. We'll find the optimal split across global equities, bonds, gold, real estate, and cash."), unsafe_allow_html=True)
+    st.markdown(_h(1, "Find your optimal global portfolio"), unsafe_allow_html=True)
+    st.markdown(
+        _sub("Tell us how much risk you're comfortable with. We'll screen the global market for the strongest "
+             "combination of stocks, balance them with defensive assets, and explain every decision in plain English."),
+        unsafe_allow_html=True,
+    )
     _divider()
 
     if not run_clicked:
         st.markdown(
-            f'<p style="color:{_GREY};">Choose your stocks and preferences in the sidebar, then click '
+            f'<p style="color:{_GREY};">Set your preferences in the sidebar, then click '
             f'<strong style="color:{_TEXT};">Calculate my portfolio</strong>.</p>'
-            f'<p style="color:{_GREY};">We\'ll work out exactly how to split your money, show you what it would '
-            "have returned historically, and explain every decision in plain English.</p>",
+            f'<p style="color:{_GREY};">We\'ll screen the global market for you, work out exactly how to split your '
+            "money, show you what it would have returned historically, and explain every decision in plain English.</p>",
             unsafe_allow_html=True,
         )
         return
 
-    if len(selected_tickers) < 3:
-        st.error("Please select at least 3 stocks to build a portfolio.")
+    with st.sidebar:
+        st.caption(
+            f"Analysing {len(FULL_STOCK_UNIVERSE)} global companies and 4 defensive assets "
+            "to find your optimal allocation."
+        )
+
+    # ── Download & screen ───────────────────────────────────────────────────────
+    with st.spinner("Downloading global market data…"):
+        all_tickers      = tuple(sorted(FULL_STOCK_UNIVERSE.keys()))
+        prices_all       = download_prices(all_tickers)
+        benchmark        = download_benchmark()
+        defensive_prices = download_defensive_prices()
+
+    available_stocks = [t for t in FULL_STOCK_UNIVERSE if t in prices_all.columns]
+    if len(available_stocks) < 15:
+        st.error("Couldn't download enough market data to build a portfolio. Please try again later.")
+        return
+    prices_all  = prices_all[available_stocks].ffill()
+    returns_all = calculate_returns(prices_all)
+
+    with st.spinner("Screening the global market for the most efficient stock combination…"):
+        selected_stocks, all_sharpes = screen_stocks(returns_all, target_n=SCREEN_TARGET_N)
+
+    if len(selected_stocks) < 5:
+        st.error("Couldn't find enough stocks with usable data. Please try again later.")
         return
 
-    sector_map = {t: STOCK_UNIVERSE[t][1] for t in selected_tickers}
-    names      = {t: STOCK_UNIVERSE[t][0] for t in selected_tickers}
+    names      = {t: FULL_STOCK_UNIVERSE[t][0] for t in selected_stocks}
+    sector_map = {t: FULL_STOCK_UNIVERSE[t][1] for t in selected_stocks}
+    returns_stocks = returns_all[selected_stocks].dropna()
 
-    # ── Calculations ──────────────────────────────────────────────────────────
-    with st.spinner("Downloading 5 years of price data…"):
-        prices    = download_prices(tuple(sorted(selected_tickers)))
-        benchmark = download_benchmark()
-        if portfolio_type == "Global multi-asset portfolio (recommended)":
-            etf_prices  = download_global_etf_prices()
-            swda_prices = download_swda()
+    defensive_returns = calculate_returns(defensive_prices.ffill())
+    common_idx  = returns_stocks.index
+    def_aligned = defensive_returns.reindex(common_idx).ffill()
 
-    available = [t for t in selected_tickers if t in prices.columns]
-    if len(available) < 3:
-        st.error("Couldn't download data for enough stocks. Try a different selection.")
-        return
-    prices     = prices[available]
-    sector_map = {t: sector_map[t] for t in available}
-    names      = {t: names[t] for t in available}
+    combined = pd.DataFrame(index=common_idx)
+    for t in selected_stocks:
+        combined[t] = returns_stocks[t]
+    for key, dname, ticker, ddesc in DEFENSIVE_ASSETS:
+        if ticker is not None and ticker in def_aligned.columns:
+            combined[key] = def_aligned[ticker]
+    combined["CASH"] = make_cash_returns(common_idx)
+    combined = combined.dropna()
 
-    returns                  = calculate_returns(prices)
-    mean_returns, cov_matrix = build_statistics(returns)
+    stock_set       = set(selected_stocks)
+    available_assets = [k for k in _DEFENSIVE_KEYS if k in combined.columns]
+    all_keys         = [t for t in selected_stocks if t in combined.columns] + available_assets
+
+    mean_returns, cov_matrix = build_statistics(combined[all_keys])
 
     _empty_m = {"Sharpe Ratio": 0.0, "Annual Return": 0.0, "Annual Volatility": 0.0, "Max Drawdown": 0.0, "Sortino Ratio": 0.0}
 
     def bt_m(cum):
         return performance_metrics(cum.pct_change().dropna()) if not cum.empty else dict(_empty_m)
 
-    # ══════════════════════════════════════════════════════════════════════════
-    if portfolio_type == "Global multi-asset portfolio (recommended)":
-
-        with st.spinner("Running global multi-asset optimisation — this may take up to 2 minutes…"):
-            # Build global returns (UK composite + ETFs + cash)
-            uk_eq_r = returns[available].mean(axis=1)
-            common_idx = uk_eq_r.index
-
-            etf_aligned = etf_prices.reindex(common_idx).ffill()
-            gr_dict: dict = {"UK_EQ": uk_eq_r}
-            for key, name_d, ticker, region, category in GLOBAL_ASSET_DEFS:
-                if ticker is not None and ticker in etf_aligned.columns:
-                    gr_dict[key] = etf_aligned[ticker].pct_change()
-            gr_dict["CASH"] = make_cash_returns(common_idx)
-
-            global_returns = pd.DataFrame(gr_dict).dropna(how="all")
-            global_keys    = [row[0] for row in GLOBAL_ASSET_DEFS if row[0] in global_returns.columns]
-            gr_clean       = global_returns[global_keys].dropna()
-
-            mean_returns_g, cov_matrix_g = build_statistics(gr_clean)
-
-            # Stage 1 MVO and BL
-            try:
-                mvo_g_w = run_global_optimiser(mean_returns_g, cov_matrix_g, global_keys, risk_level)
-            except Exception as e:
-                st.error(f"Global optimisation failed: {e}")
-                return
-
-            g_mkt_w  = pd.Series(1.0 / len(global_keys), index=global_keys)
-            bl_g_mu  = black_litterman_returns(mean_returns_g, cov_matrix_g, g_mkt_w)
-            try:
-                bl_g_w = run_global_optimiser(bl_g_mu, cov_matrix_g, global_keys, risk_level)
-            except Exception:
-                bl_g_w = mvo_g_w
-
-            regime_g = volatility_regime(benchmark)
-
-            g_mvo_cum, g_eq_cum, g_bench_cum = rolling_backtest_global(
-                gr_clean, global_keys, risk_level, benchmark
-            )
-            g_bl_cum, _, _ = rolling_backtest_global_bl(
-                gr_clean, global_keys, risk_level, benchmark, g_mkt_w
-            )
-
-            if not g_mvo_cum.empty and not g_bl_cum.empty:
-                _rg_mvo  = g_mvo_cum.pct_change().dropna()
-                _rg_bl   = g_bl_cum.pct_change().dropna()
-                _gc      = _rg_mvo.index.intersection(_rg_bl.index)
-                _rg_c    = 0.5 * _rg_mvo.loc[_gc] + 0.5 * _rg_bl.loc[_gc] if len(_gc) > 0 else _rg_mvo
-                g_comb_cum = (1 + _rg_c).cumprod()
-            else:
-                g_comb_cum = g_mvo_cum if not g_mvo_cum.empty else g_bl_cum
-
-            g_mvo_bt  = bt_m(g_mvo_cum)
-            g_bl_bt   = bt_m(g_bl_cum)
-            g_comb_bt = bt_m(g_comb_cum)
-
-            g_sharpes  = {"MVO": g_mvo_bt["Sharpe Ratio"], "BL": g_bl_bt["Sharpe Ratio"], "Combined": g_comb_bt["Sharpe Ratio"]}
-            g_best     = max(g_sharpes, key=g_sharpes.get)
-            g_top2     = sorted(g_sharpes.values(), reverse=True)
-            g_winner   = "Combined" if g_top2[0] - g_top2[1] <= 0.05 else g_best
-
-            g_combined_w = blend_weights(mvo_g_w, bl_g_w, g_sharpes["MVO"], g_sharpes["BL"], regime_g)
-            _gw_map      = {"MVO": mvo_g_w, "BL": bl_g_w, "Combined": g_combined_w}
-            _gc_map      = {"MVO": g_mvo_cum, "BL": g_bl_cum, "Combined": g_comb_cum}
-            g_weights    = _gw_map[g_winner]
-            g_disp_cum   = _gc_map[g_winner]
-
-            # Stage 2: UK stock allocation
-            try:
-                uk_stock_w = run_optimiser(mean_returns, cov_matrix, available, sector_map, risk_level)
-            except Exception:
-                uk_stock_w = pd.Series(1.0 / len(available), index=available)
-
-            uk_eq_weight = float(g_weights.get("UK_EQ", 0))
-
-            # Benchmark cumulative returns over OOS period
-            if not g_disp_cum.empty:
-                oos_idx    = g_disp_cum.index
-                swda_r_oos = swda_prices.pct_change().dropna().reindex(oos_idx).fillna(0)
-                igil_r_oos = global_returns["IGIL.L"].reindex(oos_idx).fillna(0) if "IGIL.L" in global_returns.columns else pd.Series(0.0, index=oos_idx)
-                cspx_r_oos = global_returns["CSPX.L"].reindex(oos_idx).fillna(0) if "CSPX.L" in global_returns.columns else pd.Series(0.0, index=oos_idx)
-                ibtm_r_oos = global_returns["IBTM.L"].reindex(oos_idx).fillna(0) if "IBTM.L" in global_returns.columns else pd.Series(0.0, index=oos_idx)
-                g6040_cum  = (1 + 0.60 * swda_r_oos + 0.40 * igil_r_oos).cumprod()
-                us8020_cum = (1 + 0.80 * cspx_r_oos + 0.20 * ibtm_r_oos).cumprod()
-            else:
-                g6040_cum  = pd.Series(dtype=float)
-                us8020_cum = pd.Series(dtype=float)
-
-        if g_disp_cum.empty:
-            st.warning("Not enough price history to run a global backtest — need at least 2.5 years of data.")
-            return
-
-        # Global portfolio return for metric cards
-        g_port_ret = (gr_clean[global_keys] @ g_weights.reindex(global_keys).fillna(0).values).dropna()
-        gm         = performance_metrics(g_port_ret)
-
-        g_final_value = portfolio_size * (1 + gm["Annual Return"]) ** 5
-        g_vol_pct     = abs(gm["Annual Volatility"]) * 100
-        g_dd_pct      = abs(gm["Max Drawdown"])      * 100
-        global_names  = {row[0]: row[1] for row in GLOBAL_ASSET_DEFS}
-
-        # ── Global Section 1: Allocation tables ──────────────────────────────
-        st.markdown(_h(2, "Your recommended portfolio"), unsafe_allow_html=True)
-        st.markdown(_sub("This is how to split your money across asset classes and UK stocks."), unsafe_allow_html=True)
-
-        _render_global_allocation_tables(g_weights, uk_stock_w, uk_eq_weight, portfolio_size, names)
-
-        # Home bias warning
-        uk_total = float(g_weights.get("UK_EQ", 0)) + float(g_weights.get("IGLT.L", 0))
-        if uk_total > 0.35:
-            st.markdown(
-                f'<div style="background:#1E2130;border:1px solid #9B6B6B;border-radius:8px;'
-                f'padding:14px 18px;margin:14px 0 0 0;">'
-                f'<span style="color:#9B6B6B;font-weight:500;font-size:0.88rem;line-height:1.6;">'
-                f'Your portfolio has a significant UK tilt ({uk_total*100:.0f}% in UK assets). '
-                f'UK assets make up roughly 4% of global market capitalisation — a heavy home bias means '
-                f'your returns are more dependent on the UK economy than a globally diversified investor '
-                f'would typically accept. This may reflect your stock selection or risk settings.'
-                f'</span></div>',
-                unsafe_allow_html=True,
-            )
-
-        # ── Global Section 2: Metric cards ───────────────────────────────────
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown(_h(3, "What to expect"), unsafe_allow_html=True)
-        gc1, gc2, gc3 = st.columns(3)
-        _card(gc1,
-              headline=f"Based on historical returns, £{portfolio_size:,} could grow to £{g_final_value:,.0f} over 5 years",
-              number=fmt_pct(gm["Annual Return"]) + " average annual return",
-              sub="Historical only — past performance does not guarantee future results")
-        _card(gc2,
-              headline=f"In a typical year, expect your portfolio to move by around ±{g_vol_pct:.0f}%",
-              number=f"±{g_vol_pct:.0f}% annual movement",
-              sub="Some years will be much better, some much worse — this is the average size of the swings")
-        _card(gc3,
-              headline=f"Worst historical drop before recovery: {g_dd_pct:.0f}%",
-              number=f"−{g_dd_pct:.0f}% at worst",
-              sub="If you had invested at the worst possible moment, this is how far down you would have been before recovering")
-        st.markdown("<br>", unsafe_allow_html=True)
-        with st.expander("Show technical detail (Sharpe ratio, Sortino ratio)"):
-            gtc1, gtc2, gtc3, gtc4 = st.columns(4)
-            gtc1.metric("Annual Return",     fmt_pct(gm["Annual Return"]))
-            gtc2.metric("Annual Volatility", fmt_pct(gm["Annual Volatility"]))
-            gtc3.metric("Sharpe Ratio",      fmt_2dp(gm["Sharpe Ratio"]))
-            gtc4.metric("Sortino Ratio",     fmt_2dp(gm["Sortino Ratio"]))
-
-        _divider()
-
-        # ── Global Section 2.5: How we built this portfolio ───────────────────
-        st.markdown(_h(2, "How we built this portfolio"), unsafe_allow_html=True)
-        _gdesc = {
-            "High":   "Markets have been more volatile than normal recently, so the model gives more weight to market-implied expectations over recent historical returns.",
-            "Normal": "Market conditions are within normal ranges, so all three approaches are given equal consideration.",
-            "Low":    "Markets have been calmer than normal recently, which makes recent historical data a more reliable guide.",
-        }[regime_g]
-        st.markdown(
-            f'<p style="color:{_DIMTEXT};font-size:0.88rem;margin:0 0 1.2rem 0;">'
-            f'<strong style="color:{_GREY};">Current market conditions:</strong> '
-            f'<strong style="color:{_TEXT};">{regime_g} volatility</strong> — {_gdesc}</p>',
-            unsafe_allow_html=True,
-        )
-        st.markdown(
-            "To find your optimal allocation, we tested three different approaches to splitting your money across "
-            "14 global asset classes. The first looks purely at how each asset class has performed historically. "
-            "The second starts from what the market collectively expects each asset class to return. "
-            "The third blends both, giving more weight to whichever has been more reliable recently."
-        )
-        _gexp_parts = generate_method_explanation(
-            g_winner, g_mvo_bt, g_bl_bt, g_comb_bt, regime_g,
-            mvo_g_w, bl_g_w, g_combined_w, global_names,
-        )
-        for _gp in _gexp_parts:
-            if _gp:
-                st.markdown(_gp)
-
-        _divider()
-
-        # ── Global Section 3: Why is the money split this way? ────────────────
-        st.markdown(_h(2, "Why is the money split this way?"), unsafe_allow_html=True)
-        st.markdown(
-            _sub("The model considered every possible combination of global assets and settled on these weights "
-                 "because they give you the best combination of growth and stability for your chosen risk level."),
-            unsafe_allow_html=True,
-        )
-        g_weights_dict = {k: float(g_weights.get(k, 0)) for k in global_keys}
-        _gpara1 = generate_geographic_diversification_para(g_weights_dict)
-        _gpara2 = generate_defensive_positioning_para(g_weights_dict)
-        if _gpara1:
-            st.markdown(_gpara1)
-        if _gpara2:
-            st.markdown(_gpara2)
-        if uk_eq_weight > 0.001:
-            st.markdown(
-                f"**Within your UK equity allocation ({uk_eq_weight*100:.0f}%)**, "
-                "here is how the money is split across your selected stocks:"
-            )
-            for block in generate_allocation_explanations(
-                uk_stock_w, mean_returns, cov_matrix, returns, sector_map, names,
-            ):
-                st.markdown(block)
-                _divider()
-
-        # ── Global Section 4: Historical backtest ─────────────────────────────
-        st.markdown(_h(2, "How would this have performed historically?"), unsafe_allow_html=True)
-        gom  = bt_m(g_disp_cum)
-        gbm  = bt_m(g_bench_cum)
-        geqm = bt_m(g_eq_cum)
-        g6040m  = bt_m(g6040_cum)
-        us8020m = bt_m(us8020_cum)
-
-        st.markdown(generate_backtest_intro(gom, geqm, gbm, investing_goal))
-
-        g_n_test = max(1, (len(gr_clean) - TRAIN_DAYS) // TEST_DAYS)
-        st.markdown(
-            _trust_section_global(gom, gbm, g6040m, us8020m, geqm, g_n_test, portfolio_size, g_disp_cum, g_bench_cum),
-            unsafe_allow_html=True,
-        )
-
-        gfig = go.Figure()
-        gfig.add_trace(go.Scatter(x=g_disp_cum.index, y=g_disp_cum.values, name="Recommended Portfolio",
-                                  line=dict(color=_SLATE, width=2.5)))
-        if not g_eq_cum.empty:
-            gfig.add_trace(go.Scatter(x=g_eq_cum.index, y=g_eq_cum.values, name="Equal split all assets",
-                                      line=dict(color="#C4A882", width=1.5, dash="dot")))
-        if not g6040_cum.empty:
-            gfig.add_trace(go.Scatter(x=g6040_cum.index, y=g6040_cum.values, name="Global 60/40",
-                                      line=dict(color="#A8BFA8", width=1.5, dash="dash")))
-        if not us8020_cum.empty:
-            gfig.add_trace(go.Scatter(x=us8020_cum.index, y=us8020_cum.values, name="US-heavy 80/20",
-                                      line=dict(color="#BFA8A8", width=1.5, dash="dash")))
-        if not g_bench_cum.empty:
-            gfig.add_trace(go.Scatter(x=g_bench_cum.index, y=g_bench_cum.values, name="FTSE 100",
-                                      line=dict(color="#7A6B8A", width=1.5, dash="dash")))
-        gfig.update_layout(
-            title="What £1 would have become (tested on data the model had never seen)",
-            yaxis_title="Portfolio value (£1 start)",
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-            height=420, margin=dict(l=0, r=0, t=55, b=0), hovermode="x unified",
-            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-            font=dict(color=_GREY), title_font=dict(color=_TEXT),
-            xaxis=dict(gridcolor="#1E2130", linecolor=_BORDER, zerolinecolor=_BORDER),
-            yaxis=dict(gridcolor="#1E2130", linecolor=_BORDER, zerolinecolor=_BORDER),
-        )
-        st.plotly_chart(gfig, use_container_width=True)
-
-        # ── Global Section 5: Comparison table ───────────────────────────────
-        if not g_mvo_cum.empty and not g_bl_cum.empty:
-            _render_comparison(
-                mvo_weights=mvo_g_w, bl_weights=bl_g_w, combined_w=g_combined_w,
-                names=global_names,
-                mvo_cum=g_mvo_cum, bl_cum=g_bl_cum, comb_cum=g_comb_cum,
-                bench_cum=g_bench_cum, winner=g_winner,
-            )
-
-        _divider()
-        st.markdown(
-            f'<div style="text-align:center;padding:20px 0 8px;">'
-            f'<p style="color:{_GREY};font-size:0.85rem;margin:0 0 10px 0;">'
-            "Built something useful? We'd love to hear what you think.</p>"
-            f'<a href="https://forms.gle/SSHiMbwoH78n4cyU8" target="_blank" rel="noopener" '
-            f'style="display:inline-block;color:{_TEXT};font-size:0.85rem;font-weight:500;'
-            f'text-decoration:none;padding:9px 22px;border:1px solid {_SLATE};'
-            f'border-radius:6px;letter-spacing:0.03em;">'
-            "Share feedback</a></div>",
-            unsafe_allow_html=True,
-        )
-        return
-
-    # ── UK Stocks only — everything below is the original flow ────────────────
+    # ── Optimisation ─────────────────────────────────────────────────────────────
     with st.spinner("Running analysis — this takes around 60 seconds…"):
         try:
-            mvo_weights = run_optimiser(mean_returns, cov_matrix, available, sector_map, risk_level)
+            mvo_weights = run_optimiser(mean_returns, cov_matrix, all_keys, stock_set, risk_level)
         except Exception as e:
             st.error(f"Optimisation failed: {e}")
             return
 
-        market_caps = get_market_caps(tuple(sorted(available)))
-        bl_means    = black_litterman_returns(mean_returns, cov_matrix, market_caps)
+        mkt_w = get_combined_market_weights(selected_stocks, available_assets)
+        bl_means = black_litterman_returns(mean_returns, cov_matrix, mkt_w)
         try:
-            bl_weights = run_optimiser(bl_means, cov_matrix, available, sector_map, risk_level)
+            bl_weights = run_optimiser(bl_means, cov_matrix, all_keys, stock_set, risk_level)
         except Exception:
             bl_weights = mvo_weights
 
         regime = volatility_regime(benchmark)
 
         mvo_opt_cum, eq_cum, bench_cum = rolling_backtest(
-            returns, available, sector_map, risk_level, benchmark
+            combined[all_keys], all_keys, stock_set, risk_level, benchmark
         )
         bl_opt_cum, _, _ = rolling_backtest_bl(
-            returns, available, sector_map, risk_level, benchmark, market_caps
+            combined[all_keys], all_keys, stock_set, risk_level, benchmark, mkt_w
         )
 
-        # Combined backtest: 50/50 blend of MVO and BL daily returns
         if not mvo_opt_cum.empty and not bl_opt_cum.empty:
             _r_mvo   = mvo_opt_cum.pct_change().dropna()
             _r_bl    = bl_opt_cum.pct_change().dropna()
@@ -2186,28 +1647,57 @@ def main():
         st.warning("Not enough price history to run a backtest — need at least 2.5 years of data.")
         return
 
-    port_ret = returns[available] @ weights
+    port_ret = combined[all_keys] @ weights.reindex(all_keys).fillna(0).values
     m        = performance_metrics(port_ret)
 
-    # ── Section 1: Allocation table ───────────────────────────────────────────
-    st.markdown(_h(2, "Your recommended portfolio"), unsafe_allow_html=True)
-    st.markdown(_sub("This is how to split your money. Stocks are sorted from largest to smallest allocation."), unsafe_allow_html=True)
+    display_names = dict(names)
+    for key, dname, ticker, ddesc in DEFENSIVE_ASSETS:
+        display_names[key] = dname
+
+    # ── Section 1: Your recommended investments ─────────────────────────────────
+    st.markdown(_h(2, "Your recommended investments"), unsafe_allow_html=True)
+    st.markdown(_sub("This is how to split your money. Investments are sorted from largest to smallest allocation."), unsafe_allow_html=True)
 
     rows = []
-    for t in available:
-        w = float(weights[t])
-        if w > 0.0005:
+    for t in all_keys:
+        w = float(weights.get(t, 0))
+        if w > 0.01:
+            is_stock = t in stock_set
+            if is_stock:
+                what_it_is = STOCK_DESCRIPTIONS.get(t, "")
+            else:
+                what_it_is = next(d for k, n, tk, d in DEFENSIVE_ASSETS if k == t)
             rows.append({
-                "Company":            names[t],
-                "What they do":       STOCK_DESCRIPTIONS.get(t, ""),
-                "Sector":             sector_map[t],
-                "Your allocation":    fmt_pct(w),
-                "How much to invest": f"£{w * portfolio_size:,.0f}",
+                "Investment":      display_names.get(t, t),
+                "What it is":      what_it_is,
+                "Type":            "Stock" if is_stock else "Asset",
+                "Your allocation": fmt_pct(w),
+                "Amount":          f"£{w * portfolio_size:,.0f}",
             })
     rows.sort(key=lambda r: float(r["Your allocation"].rstrip("%")), reverse=True)
-    _render_table(rows)
+    _render_investment_table(rows)
 
-    # ── Section 2: Metric cards ───────────────────────────────────────────────
+    st.markdown(
+        f'<p style="color:{_GREY};font-size:0.78rem;margin:10px 0 0 0;">'
+        "Non-UK stocks are priced in their local currency. Returns are calculated in local currency terms — "
+        "exchange rate movements are not accounted for in this model.</p>",
+        unsafe_allow_html=True,
+    )
+
+    # ── Section 2: Why these investments were chosen ────────────────────────────
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown(_h(3, "Why these investments were chosen"), unsafe_allow_html=True)
+    defensive_w_dict = {k: float(weights.get(k, 0)) for k in _DEFENSIVE_KEYS}
+    st.markdown(
+        generate_selection_rationale_paragraph(
+            selected_stocks, sector_map, weights, len(FULL_STOCK_UNIVERSE), defensive_w_dict
+        )
+    )
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    _render_stock_screening_expander(selected_stocks, all_sharpes, weights, names)
+
+    # ── Section 3: Metric cards ──────────────────────────────────────────────────
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown(_h(3, "What to expect"), unsafe_allow_html=True)
 
@@ -2249,7 +1739,7 @@ def main():
 
     _divider()
 
-    # ── Section 2.5: How we built this portfolio ──────────────────────────────
+    # ── Section: How we built this portfolio ─────────────────────────────────────
     st.markdown(_h(2, "How we built this portfolio"), unsafe_allow_html=True)
 
     _regime_desc = {
@@ -2265,17 +1755,16 @@ def main():
     )
 
     st.markdown(
-        "To find your optimal allocation, we tested three different approaches to splitting your money. "
-        "The first looks purely at how each stock has performed historically and finds the combination "
-        "that would have worked best. The second ignores recent history and instead starts from what the "
-        "market collectively expects each stock to return — based on how large each company is relative "
-        "to the others. The third blends both approaches, giving more weight to whichever has been more "
-        "reliable recently."
+        "To find your optimal allocation, we tested three different approaches to splitting your money across "
+        "your screened stocks and the four defensive assets. The first looks purely at how each investment has "
+        "performed historically and finds the combination that would have worked best. The second ignores recent "
+        "history and instead starts from what the market collectively expects each investment to return. The third "
+        "blends both approaches, giving more weight to whichever has been more reliable recently."
     )
 
     _exp_parts = generate_method_explanation(
         winner, mvo_bt_m, bl_bt_m, comb_bt_m, regime,
-        mvo_weights, bl_weights, combined_w, names,
+        mvo_weights, bl_weights, combined_w, display_names,
     )
     for _p in _exp_parts:
         if _p:
@@ -2283,36 +1772,52 @@ def main():
 
     _divider()
 
-    # ── Section 3: Why these weights ─────────────────────────────────────────
+    # ── Section: Why is the money split this way? ────────────────────────────────
     st.markdown(_h(2, "Why is the money split this way?"), unsafe_allow_html=True)
     st.markdown(
-        _sub("The model considered every possible way to divide your money across these stocks and settled on "
-             "these weights because they give you the best combination of growth and stability for the risk "
-             "level you chose — based on 5 years of historical data."),
+        _sub("The model considered every possible way to divide your money across your screened stocks and the "
+             "four defensive assets, and settled on these weights because they give you the best combination of "
+             "growth and stability for the risk level you chose — based on 5 years of historical data."),
         unsafe_allow_html=True,
     )
+
+    _def_para = generate_defensive_role_paragraph(defensive_w_dict)
+    if _def_para:
+        st.markdown(_def_para)
+        _divider()
+
+    stock_weights_for_explain = weights.reindex(selected_stocks).fillna(0)
     for block in generate_allocation_explanations(
-        weights, mean_returns, cov_matrix, returns, sector_map, names,
+        stock_weights_for_explain,
+        mean_returns.reindex(selected_stocks),
+        cov_matrix.loc[selected_stocks, selected_stocks],
+        combined[selected_stocks],
+        names,
     ):
         st.markdown(block)
         _divider()
 
-    # ── Section 4: Historical backtest ────────────────────────────────────────
+    # ── Section: Historical backtest ──────────────────────────────────────────────
     st.markdown(_h(2, "How would this have performed historically?"), unsafe_allow_html=True)
 
     om, em, bm = bt_m(display_cum), bt_m(eq_cum), bt_m(bench_cum)
 
-    # Intro paragraph
     st.markdown(generate_backtest_intro(om, em, bm, investing_goal))
 
-    # Trust section — above the chart
-    n_test_periods = max(1, (len(returns) - TRAIN_DAYS) // TEST_DAYS)
+    n_test_periods = max(1, (len(combined[all_keys]) - TRAIN_DAYS) // TEST_DAYS)
     st.markdown(
         _trust_section(om, em, bm, n_test_periods, portfolio_size, display_cum, eq_cum, bench_cum),
         unsafe_allow_html=True,
     )
 
-    # Chart
+    # Additional benchmark: equal weight across just the selected stocks, no defensive assets
+    stocks_only_eq_r = returns_stocks.mean(axis=1)
+    common_oos = display_cum.index.intersection(stocks_only_eq_r.index)
+    if len(common_oos) > 0:
+        stocks_only_eq_cum = (1 + stocks_only_eq_r.loc[common_oos]).cumprod()
+    else:
+        stocks_only_eq_cum = pd.Series(dtype=float)
+
     fig = go.Figure()
     fig.add_trace(go.Scatter(
         x=display_cum.index, y=display_cum.values, name="Recommended Portfolio",
@@ -2322,6 +1827,11 @@ def main():
         x=eq_cum.index, y=eq_cum.values, name="Equal split",
         line=dict(color="#C4A882", width=2),
     ))
+    if not stocks_only_eq_cum.empty:
+        fig.add_trace(go.Scatter(
+            x=stocks_only_eq_cum.index, y=stocks_only_eq_cum.values, name="Stocks only equal split",
+            line=dict(color="#BFA8A8", width=1.5, dash="dot"),
+        ))
     fig.add_trace(go.Scatter(
         x=bench_cum.index, y=bench_cum.values, name="FTSE 100",
         line=dict(color=_SAGE, width=2, dash="dash"),
@@ -2342,11 +1852,9 @@ def main():
     )
     st.plotly_chart(fig, use_container_width=True)
 
-    # Verdict
     for line in generate_backtest_verdict(om, em, bm):
         st.markdown(line)
 
-    # Numbers in expander
     with st.expander("Show me the numbers"):
         labels     = ["Annual Return", "Annual Volatility", "Sharpe Ratio", "Sortino Ratio", "Max Drawdown"]
         fmts       = [fmt_pct, fmt_pct, fmt_2dp, fmt_2dp, fmt_pct]
@@ -2358,13 +1866,13 @@ def main():
         })
         st.dataframe(compare_df, use_container_width=True, hide_index=True)
 
-    # ── Section 5: What each approach would have recommended ──────────────────
+    # ── Section: What each approach would have recommended ──────────────────────
     if not mvo_opt_cum.empty and not bl_opt_cum.empty:
         _render_comparison(
             mvo_weights=mvo_weights,
             bl_weights=bl_weights,
             combined_w=combined_w,
-            names=names,
+            names=display_names,
             mvo_cum=mvo_opt_cum,
             bl_cum=bl_opt_cum,
             comb_cum=comb_opt_cum,
