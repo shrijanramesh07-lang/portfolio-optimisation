@@ -281,6 +281,98 @@ def rolling_backtest_bl(returns, tickers, sector_map, risk_level, benchmark_pric
     return cum(opt_r), cum(eq_r), cum(bench_r)
 
 
+def volatility_regime(benchmark_prices: pd.Series) -> str:
+    r = benchmark_prices.pct_change().dropna()
+    if len(r) < 60:
+        return "Normal"
+    recent_vol = r.iloc[-21:].std() * np.sqrt(TRADING_DAYS)
+    hist_vol   = r.iloc[-252:].std() * np.sqrt(TRADING_DAYS)
+    if hist_vol <= 0:
+        return "Normal"
+    ratio = recent_vol / hist_vol
+    if ratio > 1.35:
+        return "High"
+    if ratio < 0.75:
+        return "Low"
+    return "Normal"
+
+
+def blend_weights(
+    mvo_w: pd.Series,
+    bl_w: pd.Series,
+    mvo_sharpe: float,
+    bl_sharpe: float,
+    regime: str,
+) -> pd.Series:
+    """Sharpe-weighted blend of MVO and BL adjusted for current volatility regime."""
+    s_mvo = max(mvo_sharpe, 0.0)
+    s_bl  = max(bl_sharpe,  0.0)
+    alpha = 0.5 if (s_mvo + s_bl) <= 0 else s_mvo / (s_mvo + s_bl)
+    if regime == "High":
+        alpha -= 0.15   # shift toward BL in turbulent markets
+    elif regime == "Low":
+        alpha += 0.15   # shift toward MVO when recent history is more predictive
+    alpha = float(np.clip(alpha, 0.2, 0.8))
+    tickers = list(mvo_w.index)
+    v = alpha * mvo_w.values + (1 - alpha) * bl_w.reindex(tickers).fillna(0).values
+    v = np.clip(v, 0, None)
+    return pd.Series(v / v.sum(), index=tickers)
+
+
+def generate_method_explanation(
+    winner: str,
+    mvo_bt: dict,
+    bl_bt: dict,
+    comb_bt: dict,
+    regime: str,
+) -> tuple:
+    """Returns (para2, para3) for the 'How we built this portfolio' section."""
+    all_bt      = {"MVO": mvo_bt, "BL": bl_bt, "Combined": comb_bt}
+    sorted_bt   = sorted(all_bt.items(), key=lambda x: x[1].get("Annual Return", 0), reverse=True)
+    second_key  = sorted_bt[1][0]
+    third_key   = sorted_bt[2][0]
+    plain_names = {"MVO": "historically-informed", "BL": "market-expectations", "Combined": "blended"}
+
+    w_ret = all_bt[winner].get("Annual Return", 0)
+    w_vol = all_bt[winner].get("Annual Volatility", 0)
+    s_ret = all_bt[second_key].get("Annual Return", 0)
+    t_ret = all_bt[third_key].get("Annual Return", 0)
+
+    why_map = {
+        ("BL",       "High"):   "In the current volatile market environment, starting from market expectations rather than recent history produced more stable allocations that held up better out of sample.",
+        ("MVO",      "Low"):    "Markets have been relatively calm recently, which means recent historical returns are a reasonable guide, and the historically-informed approach captured this effectively.",
+        ("Combined", "High"):   "The blended approach outperformed either method alone — in volatile conditions neither model is consistently right, so combining them reduces the damage when one is wrong.",
+        ("Combined", "Low"):    "The blended approach outperformed either method alone — even in calm markets, combining approaches reduces the risk of over-fitting to recent data.",
+        ("Combined", "Normal"): "The blended approach outperformed either method alone — neither model is consistently right, so combining them reduces the damage when one is wrong.",
+        ("MVO",      "High"):   "Even in a volatile environment, recent historical patterns proved more predictive than market-implied estimates for this particular selection of stocks.",
+        ("MVO",      "Normal"): "Recent historical performance was a reliable predictor for this selection of stocks at this risk level.",
+        ("BL",       "Normal"): "Starting from market expectations rather than recent history produced more stable weights that held up better in out-of-sample testing.",
+        ("BL",       "Low"):    "Market-implied returns proved more reliable than recent history — the market may be discounting some stocks' recent strong runs as unlikely to persist.",
+    }
+    why = why_map.get((winner, regime)) or why_map.get((winner, "Normal"), "")
+
+    para2 = (
+        f"Tested on historical data the model had never seen, the {plain_names[winner]} approach produced "
+        f"the strongest result for your risk level — a {w_ret*100:.1f}% annual return at "
+        f"{w_vol*100:.1f}% volatility, compared to {s_ret*100:.1f}% and {t_ret*100:.1f}% return "
+        f"for the other approaches. {why}"
+    )
+
+    para3_map = {
+        ("BL",       "High"):   "Markets have been more volatile than usual recently, which tends to make historical return estimates less reliable. Starting from market expectations produced a more balanced portfolio that is less dependent on recent trends continuing.",
+        ("MVO",      "Low"):    "Markets have been relatively calm recently, which means recent historical returns are a reasonable guide. The historically-informed approach captured this momentum effectively.",
+        ("Combined", ""):       "Neither approach alone was clearly superior, so the blended method — which automatically adjusts based on market conditions — produced the most reliable result. This is the most common outcome and the most defensible one.",
+        ("BL",       ""):       "The market's collective expectations for these stocks proved a better guide than their recent track record alone. This often happens when a stock has had an unusually strong or weak recent period that the broader market does not expect to continue.",
+        ("MVO",      ""):       "Historical return patterns for this selection of stocks proved consistent enough that the data-driven approach outperformed market-implied estimates. This is most likely when the selected stocks have stable, predictable return relationships.",
+    }
+    para3 = (
+        para3_map.get((winner, regime))
+        or para3_map.get((winner, ""))
+        or para3_map["Combined", ""]
+    )
+    return para2, para3
+
+
 # ── Plain-English stock descriptions ─────────────────────────────────────────
 
 STOCK_DESCRIPTIONS = {
@@ -635,109 +727,119 @@ def generate_comparison_paragraph(
 def _render_comparison(
     mvo_weights: pd.Series,
     bl_weights: pd.Series,
+    combined_w: pd.Series,
     names: dict,
-    mvo_m: dict,
-    bl_m: dict,
     mvo_cum: pd.Series,
     bl_cum: pd.Series,
+    comb_cum: pd.Series,
     bench_cum: pd.Series,
+    winner: str,
 ) -> None:
     _divider()
-    st.markdown(_h(2, "Standard vs Market-Informed: what's the difference?"), unsafe_allow_html=True)
+    st.markdown(_h(2, "What each approach would have recommended"), unsafe_allow_html=True)
     st.markdown(
-        _sub("Both methods have been calculated for your selection. Here's what changes when the model uses "
-             "market-implied returns instead of raw historical averages."),
+        _sub("For context, here is how each approach performed on your specific stock selection and risk level — the allocation above uses whichever worked best."),
         unsafe_allow_html=True,
     )
 
-    # ── Allocation comparison table ───────────────────────────────────────────
-    st.markdown(_h(3, "How the allocations differ"), unsafe_allow_html=True)
-    tickers = list(mvo_weights.index)
-    rows = []
-    for t in sorted(tickers, key=lambda x: float(mvo_weights[x]), reverse=True):
-        mvo_w = float(mvo_weights[t])
-        bl_w  = float(bl_weights.get(t, 0))
-        diff  = bl_w - mvo_w
-        if mvo_w < 0.005 and bl_w < 0.005:
-            continue
-        rows.append((names[t], mvo_w, bl_w, diff))
+    col_info   = [("MVO", "Standard"), ("BL", "Market-Informed"), ("Combined", "Blended")]
+    col_colors = {"MVO": _SLATE, "BL": "#C4A882", "Combined": _SAGE}
+    W_BG = "#1E2D45"
 
-    th = (
-        f'<th style="background:#1E2130;color:{_GREY};padding:10px 16px;text-align:left;font-weight:500;font-size:0.82rem;">Company</th>'
-        f'<th style="background:#1E2130;color:{_GREY};padding:10px 16px;text-align:right;font-weight:500;font-size:0.82rem;">Standard</th>'
-        f'<th style="background:#1E2130;color:{_GREY};padding:10px 16px;text-align:right;font-weight:500;font-size:0.82rem;">Market-Informed</th>'
-        f'<th style="background:#1E2130;color:{_GREY};padding:10px 16px;text-align:right;font-weight:500;font-size:0.82rem;">Difference</th>'
-    )
-    tb = ""
-    for i, (name, mvo_w, bl_w, diff) in enumerate(rows):
-        bg         = "#161822" if i % 2 == 0 else "#1A1D2B"
-        diff_color = _SAGE if diff > 0.005 else (_ROSE if diff < -0.005 else _GREY)
-        diff_str   = f"+{diff*100:.1f}pp" if diff > 0.005 else (f"{diff*100:.1f}pp" if diff < -0.005 else "—")
-        tb += (
-            f'<tr style="background:{bg};">'
-            f'<td style="padding:10px 16px;color:{_TEXT};font-weight:500;">{name}</td>'
-            f'<td style="padding:10px 16px;color:{_SLATE};font-weight:600;text-align:right;">{mvo_w*100:.1f}%</td>'
-            f'<td style="padding:10px 16px;color:#C4A882;font-weight:600;text-align:right;">{bl_w*100:.1f}%</td>'
-            f'<td style="padding:10px 16px;color:{diff_color};font-weight:600;text-align:right;">{diff_str}</td>'
-            f'</tr>'
-        )
+    # ── Allocation table (3 methods, winner column highlighted) ───────────────
+    tickers = list(mvo_weights.index)
+    a_rows  = [
+        (names[t], float(mvo_weights[t]), float(bl_weights.get(t, 0)), float(combined_w.get(t, 0)))
+        for t in sorted(tickers, key=lambda x: float(mvo_weights[x]), reverse=True)
+        if float(mvo_weights[t]) >= 0.005 or float(bl_weights.get(t, 0)) >= 0.005 or float(combined_w.get(t, 0)) >= 0.005
+    ]
+
+    ah = f'<th style="background:#1E2130;color:{_GREY};padding:10px 16px;text-align:left;font-weight:500;font-size:0.82rem;">Company</th>'
+    for mk, label in col_info:
+        is_w   = mk == winner
+        bg_c   = W_BG if is_w else "#1E2130"
+        col_c  = _TEXT if is_w else _GREY
+        marker = "  ★" if is_w else ""
+        ah += f'<th style="background:{bg_c};color:{col_c};padding:10px 16px;text-align:right;font-weight:500;font-size:0.82rem;">{label}{marker}</th>'
+
+    ab = ""
+    idxmap = {"MVO": 1, "BL": 2, "Combined": 3}
+    for i, row in enumerate(a_rows):
+        bg = "#161822" if i % 2 == 0 else "#1A1D2B"
+        ab += f'<tr style="background:{bg};"><td style="padding:10px 16px;color:{_TEXT};font-weight:500;">{row[0]}</td>'
+        for mk, _ in col_info:
+            val     = row[idxmap[mk]]
+            cell_bg = f"background:{W_BG};" if mk == winner else ""
+            ab += f'<td style="padding:10px 16px;{cell_bg}color:{col_colors[mk]};font-weight:600;text-align:right;">{val*100:.1f}%</td>'
+        ab += "</tr>"
+
     st.markdown(
         f'<div style="overflow-x:auto;border-radius:8px;border:1px solid {_BORDER};">'
         f'<table style="width:100%;border-collapse:collapse;">'
-        f'<thead><tr>{th}</tr></thead><tbody>{tb}</tbody></table></div>',
+        f'<thead><tr>{ah}</tr></thead><tbody>{ab}</tbody></table></div>',
         unsafe_allow_html=True,
     )
 
-    # ── Metrics comparison table ──────────────────────────────────────────────
+    # ── Backtest performance table ────────────────────────────────────────────
     st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown(_h(3, "How the key figures compare"), unsafe_allow_html=True)
+    st.markdown(_h(3, "Backtest performance (out-of-sample)"), unsafe_allow_html=True)
+
+    def _bm(cum):
+        return performance_metrics(cum.pct_change().dropna()) if not cum.empty else {}
+
+    bt = {"MVO": _bm(mvo_cum), "BL": _bm(bl_cum), "Combined": _bm(comb_cum)}
     metric_labels = ["Annual Return", "Annual Volatility", "Sharpe Ratio", "Max Drawdown"]
     metric_fmts   = [fmt_pct,         fmt_pct,             fmt_2dp,        fmt_pct]
 
-    mh = (
-        f'<th style="background:#1E2130;color:{_GREY};padding:10px 16px;text-align:left;font-weight:500;font-size:0.82rem;">Metric</th>'
-        f'<th style="background:#1E2130;color:{_GREY};padding:10px 16px;text-align:right;font-weight:500;font-size:0.82rem;">Standard</th>'
-        f'<th style="background:#1E2130;color:{_GREY};padding:10px 16px;text-align:right;font-weight:500;font-size:0.82rem;">Market-Informed</th>'
-    )
-    mb = ""
-    for i, (label, fmt) in enumerate(zip(metric_labels, metric_fmts)):
+    ph = f'<th style="background:#1E2130;color:{_GREY};padding:10px 16px;text-align:left;font-weight:500;font-size:0.82rem;">Metric</th>'
+    for mk, label in col_info:
+        is_w   = mk == winner
+        bg_c   = W_BG if is_w else "#1E2130"
+        col_c  = _TEXT if is_w else _GREY
+        marker = "  ★" if is_w else ""
+        ph += f'<th style="background:{bg_c};color:{col_c};padding:10px 16px;text-align:right;font-weight:500;font-size:0.82rem;">{label}{marker}</th>'
+
+    pb = ""
+    for i, (lbl, fmt) in enumerate(zip(metric_labels, metric_fmts)):
         bg = "#161822" if i % 2 == 0 else "#1A1D2B"
-        mb += (
-            f'<tr style="background:{bg};">'
-            f'<td style="padding:10px 16px;color:{_TEXT};">{label}</td>'
-            f'<td style="padding:10px 16px;color:{_SLATE};font-weight:600;text-align:right;">{fmt(mvo_m[label])}</td>'
-            f'<td style="padding:10px 16px;color:#C4A882;font-weight:600;text-align:right;">{fmt(bl_m[label])}</td>'
-            f'</tr>'
-        )
+        pb += f'<tr style="background:{bg};"><td style="padding:10px 16px;color:{_TEXT};">{lbl}</td>'
+        for mk, _ in col_info:
+            cell_bg = f"background:{W_BG};" if mk == winner else ""
+            val     = bt[mk].get(lbl)
+            pb += (
+                f'<td style="padding:10px 16px;{cell_bg}color:{col_colors[mk]};'
+                f'font-weight:600;text-align:right;">{fmt(val) if val is not None else "—"}</td>'
+            )
+        pb += "</tr>"
+
     st.markdown(
         f'<div style="overflow-x:auto;border-radius:8px;border:1px solid {_BORDER};">'
         f'<table style="width:100%;border-collapse:collapse;">'
-        f'<thead><tr>{mh}</tr></thead><tbody>{mb}</tbody></table></div>',
+        f'<thead><tr>{ph}</tr></thead><tbody>{pb}</tbody></table></div>',
         unsafe_allow_html=True,
     )
 
-    # ── Comparison paragraph ──────────────────────────────────────────────────
+    # ── Chart: all three approaches + FTSE ───────────────────────────────────
     st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown(generate_comparison_paragraph(mvo_weights, bl_weights, names, mvo_m, bl_m))
-
-    # ── Combined backtest chart ───────────────────────────────────────────────
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown(_h(3, "How both methods performed on historical data"), unsafe_allow_html=True)
-    fig2 = go.Figure()
-    fig2.add_trace(go.Scatter(
-        x=mvo_cum.index, y=mvo_cum.values, name="Standard (Mean-Variance)",
-        line=dict(color=_SLATE, width=2.5),
+    fig3 = go.Figure()
+    fig3.add_trace(go.Scatter(
+        x=mvo_cum.index, y=mvo_cum.values, name="Standard",
+        line=dict(color=_SLATE, width=2),
     ))
-    fig2.add_trace(go.Scatter(
-        x=bl_cum.index, y=bl_cum.values, name="Market-Informed (Black-Litterman)",
+    fig3.add_trace(go.Scatter(
+        x=bl_cum.index, y=bl_cum.values, name="Market-Informed",
         line=dict(color="#C4A882", width=2),
     ))
-    fig2.add_trace(go.Scatter(
-        x=bench_cum.index, y=bench_cum.values, name="FTSE 100",
-        line=dict(color=_SAGE, width=2, dash="dash"),
+    fig3.add_trace(go.Scatter(
+        x=comb_cum.index, y=comb_cum.values, name="Blended",
+        line=dict(color=_SAGE, width=2),
     ))
-    fig2.update_layout(
-        title         = "Standard vs Market-Informed — both tested on data the model had never seen",
+    fig3.add_trace(go.Scatter(
+        x=bench_cum.index, y=bench_cum.values, name="FTSE 100",
+        line=dict(color="#7A6B8A", width=1.5, dash="dash"),
+    ))
+    fig3.update_layout(
+        title         = "All three approaches tested on data they had never seen",
         yaxis_title   = "Portfolio value (£1 start)",
         legend        = dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         height        = 400,
@@ -750,45 +852,7 @@ def _render_comparison(
         xaxis         = dict(gridcolor="#1E2130", linecolor=_BORDER, zerolinecolor=_BORDER),
         yaxis         = dict(gridcolor="#1E2130", linecolor=_BORDER, zerolinecolor=_BORDER),
     )
-    st.plotly_chart(fig2, use_container_width=True)
-
-    # ── Backtest summary paragraph ────────────────────────────────────────────
-    def _bt(cum):
-        return performance_metrics(cum.pct_change().dropna())
-
-    mvo_bt   = _bt(mvo_cum)
-    bl_bt    = _bt(bl_cum)
-    bench_bt = _bt(bench_cum)
-    mvo_ret  = mvo_bt["Annual Return"]
-    bl_ret   = bl_bt["Annual Return"]
-    bm_ret   = bench_bt["Annual Return"]
-
-    if mvo_ret >= bl_ret:
-        winner, margin, loser = "standard method", (mvo_ret - bl_ret) * 100, "market-informed method"
-    else:
-        winner, margin, loser = "market-informed method", (bl_ret - mvo_ret) * 100, "standard method"
-
-    both_beat_ftse = mvo_ret > bm_ret and bl_ret > bm_ret
-    bt_para = f"On historical out-of-sample data, the **{winner}** produced higher returns by {margin:.1f} percentage points per year. "
-
-    if margin < 1.0:
-        bt_para += (
-            "The gap is small enough that it may reflect chance rather than a genuine advantage — "
-            "treat both methods as roughly equivalent on this evidence."
-        )
-    elif both_beat_ftse:
-        bt_para += (
-            f"Both methods beat the FTSE 100 ({bm_ret*100:.1f}% per year), which suggests the stock selection "
-            "itself is doing most of the work. The choice of optimisation method is secondary to "
-            "picking a solid universe of stocks."
-        )
-    else:
-        bt_para += (
-            f"The {loser} found weights that were less well-suited to the actual market conditions in this period. "
-            "Historical backtest results don't guarantee which method will do better going forward."
-        )
-
-    st.markdown(bt_para)
+    st.plotly_chart(fig3, use_container_width=True)
 
 
 # ── Step 7: Streamlit UI ──────────────────────────────────────────────────────
@@ -1062,14 +1126,6 @@ def main():
         else:
             st.caption("Growth-focused — maximising long-term return potential. Expects significant short-term swings.")
 
-        st.divider()
-        method = st.radio(
-            "Optimisation method",
-            options=["Standard (Mean-Variance)", "Market-Informed (Black-Litterman)"],
-            index=0,
-        )
-        st.caption("Standard uses past returns directly. Market-Informed starts from what the market collectively expects, which tends to produce more balanced, stable allocations.")
-
         run_clicked = st.button("Calculate my portfolio", type="primary", use_container_width=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
@@ -1120,15 +1176,13 @@ def main():
     returns                  = calculate_returns(prices)
     mean_returns, cov_matrix = build_statistics(returns)
 
-    with st.spinner("Calculating the best allocation…"):
+    with st.spinner("Running analysis — this takes around 60 seconds…"):
         try:
             mvo_weights = run_optimiser(mean_returns, cov_matrix, available, sector_map, risk_level)
         except Exception as e:
             st.error(f"Optimisation failed: {e}")
             return
 
-    # Black-Litterman (always computed for the comparison section)
-    with st.spinner("Computing market-informed allocation…"):
         market_caps = get_market_caps(tuple(sorted(available)))
         bl_means    = black_litterman_returns(mean_returns, cov_matrix, market_caps)
         try:
@@ -1136,8 +1190,49 @@ def main():
         except Exception:
             bl_weights = mvo_weights
 
-    use_bl   = "Black-Litterman" in method
-    weights  = bl_weights if use_bl else mvo_weights
+        regime = volatility_regime(benchmark)
+
+        mvo_opt_cum, eq_cum, bench_cum = rolling_backtest(
+            returns, available, sector_map, risk_level, benchmark
+        )
+        bl_opt_cum, _, _ = rolling_backtest_bl(
+            returns, available, sector_map, risk_level, benchmark, market_caps
+        )
+
+        # Combined backtest: 50/50 blend of MVO and BL daily returns
+        if not mvo_opt_cum.empty and not bl_opt_cum.empty:
+            _r_mvo   = mvo_opt_cum.pct_change().dropna()
+            _r_bl    = bl_opt_cum.pct_change().dropna()
+            _common  = _r_mvo.index.intersection(_r_bl.index)
+            _r_comb  = 0.5 * _r_mvo.loc[_common] + 0.5 * _r_bl.loc[_common] if len(_common) > 0 else _r_mvo
+            comb_opt_cum = (1 + _r_comb).cumprod()
+        else:
+            comb_opt_cum = mvo_opt_cum if not mvo_opt_cum.empty else bl_opt_cum
+
+        _empty_m = {"Sharpe Ratio": 0.0, "Annual Return": 0.0, "Annual Volatility": 0.0, "Max Drawdown": 0.0, "Sortino Ratio": 0.0}
+
+        def bt_m(cum):
+            return performance_metrics(cum.pct_change().dropna()) if not cum.empty else dict(_empty_m)
+
+        mvo_bt_m   = bt_m(mvo_opt_cum)
+        bl_bt_m    = bt_m(bl_opt_cum)
+        comb_bt_m  = bt_m(comb_opt_cum)
+
+        sharpes   = {"MVO": mvo_bt_m["Sharpe Ratio"], "BL": bl_bt_m["Sharpe Ratio"], "Combined": comb_bt_m["Sharpe Ratio"]}
+        best_meth = max(sharpes, key=sharpes.get)
+        top2      = sorted(sharpes.values(), reverse=True)
+        winner    = "Combined" if top2[0] - top2[1] <= 0.05 else best_meth
+
+        combined_w  = blend_weights(mvo_weights, bl_weights, sharpes["MVO"], sharpes["BL"], regime)
+        _w_map      = {"MVO": mvo_weights, "BL": bl_weights, "Combined": combined_w}
+        _cum_map    = {"MVO": mvo_opt_cum, "BL": bl_opt_cum, "Combined": comb_opt_cum}
+        weights     = _w_map[winner]
+        display_cum = _cum_map[winner]
+
+    if display_cum.empty:
+        st.warning("Not enough price history to run a backtest — need at least 2.5 years of data.")
+        return
+
     port_ret = returns[available] @ weights
     m        = performance_metrics(port_ret)
 
@@ -1201,53 +1296,52 @@ def main():
 
     _divider()
 
+    # ── Section 2.5: How we built this portfolio ──────────────────────────────
+    st.markdown(_h(2, "How we built this portfolio"), unsafe_allow_html=True)
+
+    _regime_desc = {
+        "High":   "Markets have been more volatile than normal recently, so the model gives more weight to market-implied expectations over recent historical returns.",
+        "Normal": "Market conditions are within normal ranges, so all three approaches are given equal consideration.",
+        "Low":    "Markets have been calmer than normal recently, which makes recent historical data a more reliable guide.",
+    }[regime]
+    st.markdown(
+        f'<p style="color:{_DIMTEXT};font-size:0.88rem;margin:0 0 1.2rem 0;">'
+        f'<strong style="color:{_GREY};">Current market conditions:</strong> '
+        f'<strong style="color:{_TEXT};">{regime} volatility</strong> — {_regime_desc}</p>',
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        "To find your optimal allocation, we tested three different approaches to splitting your money. "
+        "The first looks purely at how each stock has performed historically and finds the combination "
+        "that would have worked best. The second ignores recent history and instead starts from what the "
+        "market collectively expects each stock to return — based on how large each company is relative "
+        "to the others. The third blends both approaches, giving more weight to whichever has been more "
+        "reliable recently."
+    )
+
+    _para2, _para3 = generate_method_explanation(winner, mvo_bt_m, bl_bt_m, comb_bt_m, regime)
+    st.markdown(_para2)
+    st.markdown(_para3)
+
+    _divider()
+
     # ── Section 3: Why these weights ─────────────────────────────────────────
     st.markdown(_h(2, "Why is the money split this way?"), unsafe_allow_html=True)
-    if use_bl:
-        st.markdown(
-            _sub("This allocation uses market-informed expected returns rather than raw historical averages. "
-                 "The market's collective view of each stock — reflected in its size relative to others — "
-                 "is the starting point, which tends to produce more balanced allocations than relying "
-                 "purely on past performance."),
-            unsafe_allow_html=True,
-        )
-        expl_blocks = generate_allocation_explanations(
-            bl_weights, mean_returns, cov_matrix, returns, sector_map, names,
-            compare_weights=mvo_weights,
-        )
-    else:
-        st.markdown(
-            _sub("The model considered every possible way to divide your money across these stocks and settled on "
-                 "these weights because they give you the best combination of growth and stability for the risk "
-                 "level you chose — based on 5 years of historical data."),
-            unsafe_allow_html=True,
-        )
-        expl_blocks = generate_allocation_explanations(
-            mvo_weights, mean_returns, cov_matrix, returns, sector_map, names,
-        )
-    for block in expl_blocks:
+    st.markdown(
+        _sub("The model considered every possible way to divide your money across these stocks and settled on "
+             "these weights because they give you the best combination of growth and stability for the risk "
+             "level you chose — based on 5 years of historical data."),
+        unsafe_allow_html=True,
+    )
+    for block in generate_allocation_explanations(
+        weights, mean_returns, cov_matrix, returns, sector_map, names,
+    ):
         st.markdown(block)
         _divider()
 
     # ── Section 4: Historical backtest ────────────────────────────────────────
     st.markdown(_h(2, "How would this have performed historically?"), unsafe_allow_html=True)
-
-    with st.spinner("Running historical tests — this takes around 60 seconds…"):
-        mvo_opt_cum, eq_cum, bench_cum = rolling_backtest(
-            returns, available, sector_map, risk_level, benchmark
-        )
-        bl_opt_cum, _, _ = rolling_backtest_bl(
-            returns, available, sector_map, risk_level, benchmark, market_caps
-        )
-
-    display_cum = bl_opt_cum if use_bl else mvo_opt_cum
-
-    if display_cum.empty:
-        st.warning("Not enough price history to run a backtest — need at least 2.5 years of data.")
-        return
-
-    def bt_m(cum):
-        return performance_metrics(cum.pct_change().dropna())
 
     om, em, bm = bt_m(display_cum), bt_m(eq_cum), bt_m(bench_cum)
 
@@ -1262,10 +1356,9 @@ def main():
     )
 
     # Chart
-    method_label = "Market-Informed (BL)" if use_bl else "Optimised"
     fig = go.Figure()
     fig.add_trace(go.Scatter(
-        x=display_cum.index, y=display_cum.values, name=method_label,
+        x=display_cum.index, y=display_cum.values, name="Recommended Portfolio",
         line=dict(color=_SLATE, width=2.5),
     ))
     fig.add_trace(go.Scatter(
@@ -1301,24 +1394,25 @@ def main():
         labels     = ["Annual Return", "Annual Volatility", "Sharpe Ratio", "Sortino Ratio", "Max Drawdown"]
         fmts       = [fmt_pct, fmt_pct, fmt_2dp, fmt_2dp, fmt_pct]
         compare_df = pd.DataFrame({
-            "Metric":       labels,
-            method_label:   [f(om[l]) for l, f in zip(labels, fmts)],
-            "Equal split":  [f(em[l]) for l, f in zip(labels, fmts)],
-            "FTSE 100":     [f(bm[l]) for l, f in zip(labels, fmts)],
+            "Metric":                labels,
+            "Recommended Portfolio": [f(om[l]) for l, f in zip(labels, fmts)],
+            "Equal split":           [f(em[l]) for l, f in zip(labels, fmts)],
+            "FTSE 100":              [f(bm[l]) for l, f in zip(labels, fmts)],
         })
         st.dataframe(compare_df, use_container_width=True, hide_index=True)
 
-    # ── Section 5: Method comparison (always shown) ───────────────────────────
+    # ── Section 5: What each approach would have recommended ──────────────────
     if not mvo_opt_cum.empty and not bl_opt_cum.empty:
         _render_comparison(
             mvo_weights=mvo_weights,
             bl_weights=bl_weights,
+            combined_w=combined_w,
             names=names,
-            mvo_m=performance_metrics(returns[available] @ mvo_weights),
-            bl_m=performance_metrics(returns[available] @ bl_weights),
             mvo_cum=mvo_opt_cum,
             bl_cum=bl_opt_cum,
+            comb_cum=comb_opt_cum,
             bench_cum=bench_cum,
+            winner=winner,
         )
 
     _divider()
