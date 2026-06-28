@@ -325,52 +325,230 @@ def generate_method_explanation(
     bl_bt: dict,
     comb_bt: dict,
     regime: str,
-) -> tuple:
-    """Returns (para2, para3) for the 'How we built this portfolio' section."""
-    all_bt      = {"MVO": mvo_bt, "BL": bl_bt, "Combined": comb_bt}
-    sorted_bt   = sorted(all_bt.items(), key=lambda x: x[1].get("Annual Return", 0), reverse=True)
-    second_key  = sorted_bt[1][0]
-    third_key   = sorted_bt[2][0]
-    plain_names = {"MVO": "historically-informed", "BL": "market-expectations", "Combined": "blended"}
+    mvo_weights: "pd.Series",
+    bl_weights: "pd.Series",
+    combined_w: "pd.Series",
+    names: dict,
+) -> list:
+    """
+    Returns a list of plain-English paragraphs for the 'How we built this portfolio' section.
+    [part2_standard, part2_bl, part2_combined, part3_why, part4_combined_detail_or_None]
+    """
+    mvo_sharpe  = mvo_bt.get("Sharpe Ratio", 0.0)
+    bl_sharpe   = bl_bt.get("Sharpe Ratio", 0.0)
+    comb_sharpe = comb_bt.get("Sharpe Ratio", 0.0)
+    mvo_ret     = mvo_bt.get("Annual Return", 0.0)
+    bl_ret      = bl_bt.get("Annual Return", 0.0)
+    comb_ret    = comb_bt.get("Annual Return", 0.0)
+    mvo_vol     = mvo_bt.get("Annual Volatility", 0.0)
+    bl_vol      = bl_bt.get("Annual Volatility", 0.0)
+    comb_vol    = comb_bt.get("Annual Volatility", 0.0)
 
-    w_ret = all_bt[winner].get("Annual Return", 0)
-    w_vol = all_bt[winner].get("Annual Volatility", 0)
-    s_ret = all_bt[second_key].get("Annual Return", 0)
-    t_ret = all_bt[third_key].get("Annual Return", 0)
+    # Reconstruct blend alpha — mirrors blend_weights logic exactly
+    s_mvo      = max(mvo_sharpe, 0.0)
+    s_bl       = max(bl_sharpe, 0.0)
+    base_alpha = 0.5 if (s_mvo + s_bl) <= 0 else s_mvo / (s_mvo + s_bl)
+    adj_alpha  = base_alpha
+    if regime == "High":
+        adj_alpha -= 0.15
+    elif regime == "Low":
+        adj_alpha += 0.15
+    adj_alpha = float(np.clip(adj_alpha, 0.2, 0.8))
+    mvo_pct   = round(adj_alpha * 100)
+    bl_pct    = 100 - mvo_pct
 
-    why_map = {
-        ("BL",       "High"):   "In the current volatile market environment, starting from market expectations rather than recent history produced more stable allocations that held up better out of sample.",
-        ("MVO",      "Low"):    "Markets have been relatively calm recently, which means recent historical returns are a reasonable guide, and the historically-informed approach captured this effectively.",
-        ("Combined", "High"):   "The blended approach outperformed either method alone — in volatile conditions neither model is consistently right, so combining them reduces the damage when one is wrong.",
-        ("Combined", "Low"):    "The blended approach outperformed either method alone — even in calm markets, combining approaches reduces the risk of over-fitting to recent data.",
-        ("Combined", "Normal"): "The blended approach outperformed either method alone — neither model is consistently right, so combining them reduces the damage when one is wrong.",
-        ("MVO",      "High"):   "Even in a volatile environment, recent historical patterns proved more predictive than market-implied estimates for this particular selection of stocks.",
-        ("MVO",      "Normal"): "Recent historical performance was a reliable predictor for this selection of stocks at this risk level.",
-        ("BL",       "Normal"): "Starting from market expectations rather than recent history produced more stable weights that held up better in out-of-sample testing.",
-        ("BL",       "Low"):    "Market-implied returns proved more reliable than recent history — the market may be discounting some stocks' recent strong runs as unlikely to persist.",
-    }
-    why = why_map.get((winner, regime)) or why_map.get((winner, "Normal"), "")
+    # Top 2 stocks by MVO weight (for Standard narrative)
+    tickers      = list(mvo_weights.index)
+    sorted_ticks = sorted(tickers, key=lambda t: float(mvo_weights[t]), reverse=True)
+    top2_names   = [names.get(t, t) for t in sorted_ticks[:2]]
+    mvo_max_w    = float(mvo_weights[sorted_ticks[0]]) if sorted_ticks else 0.0
+    bl_max_w     = max((float(bl_weights.get(t, 0)) for t in tickers), default=0.0)
 
-    para2 = (
-        f"Tested on historical data the model had never seen, the {plain_names[winner]} approach produced "
-        f"the strongest result for your risk level — a {w_ret*100:.1f}% annual return at "
-        f"{w_vol*100:.1f}% volatility, compared to {s_ret*100:.1f}% and {t_ret*100:.1f}% return "
-        f"for the other approaches. {why}"
+    mvo_is_top  = mvo_sharpe >= bl_sharpe and mvo_sharpe >= comb_sharpe
+    mvo_verdict = "paid off out of sample" if mvo_is_top else "didn't fully pay off on unseen data"
+
+    bl_more_spread = bl_max_w < mvo_max_w
+    spread_phrase  = "a more evenly spread allocation" if bl_more_spread else "a similarly concentrated allocation"
+    bl_robustness  = "more robust when market conditions shifted" if bl_sharpe > mvo_sharpe else "not dramatically more robust to shifting conditions"
+
+    # ── Part 2a: Standard ─────────────────────────────────────────────────────
+    top_stock_text = top2_names[0] + (f" and {top2_names[1]}" if len(top2_names) > 1 else "")
+    part2_std = (
+        f"The **historically-informed approach (Standard)** produced {mvo_ret*100:.1f}% annual return at "
+        f"{mvo_vol*100:.1f}% volatility (how much the portfolio's value moves up and down) out of sample, "
+        f"with a Sharpe ratio (return earned per unit of risk taken) of {mvo_sharpe:.2f}. "
+        f"This approach concentrated {mvo_max_w*100:.0f}% of the portfolio into {top_stock_text}, "
+        f"because they had the strongest recent track record — a strategy that {mvo_verdict}."
     )
 
-    para3_map = {
-        ("BL",       "High"):   "Markets have been more volatile than usual recently, which tends to make historical return estimates less reliable. Starting from market expectations produced a more balanced portfolio that is less dependent on recent trends continuing.",
-        ("MVO",      "Low"):    "Markets have been relatively calm recently, which means recent historical returns are a reasonable guide. The historically-informed approach captured this momentum effectively.",
-        ("Combined", ""):       "Neither approach alone was clearly superior, so the blended method — which automatically adjusts based on market conditions — produced the most reliable result. This is the most common outcome and the most defensible one.",
-        ("BL",       ""):       "The market's collective expectations for these stocks proved a better guide than their recent track record alone. This often happens when a stock has had an unusually strong or weak recent period that the broader market does not expect to continue.",
-        ("MVO",      ""):       "Historical return patterns for this selection of stocks proved consistent enough that the data-driven approach outperformed market-implied estimates. This is most likely when the selected stocks have stable, predictable return relationships.",
-    }
-    para3 = (
-        para3_map.get((winner, regime))
-        or para3_map.get((winner, ""))
-        or para3_map["Combined", ""]
+    # ── Part 2b: BL ──────────────────────────────────────────────────────────
+    part2_bl = (
+        f"The **market-informed approach (Market-Informed)** produced {bl_ret*100:.1f}% annual return at "
+        f"{bl_vol*100:.1f}% volatility out of sample, with a Sharpe ratio of {bl_sharpe:.2f}. "
+        f"By starting from market expectations rather than recent history, this approach produced "
+        f"{spread_phrase} — the largest single position was {bl_max_w*100:.0f}% — "
+        f"making it {bl_robustness}."
     )
-    return para2, para3
+
+    # ── Part 2c: Combined ────────────────────────────────────────────────────
+    regime_adj_applied = abs(base_alpha - adj_alpha) > 0.01
+    if regime_adj_applied:
+        base_mvo_pct = round(base_alpha * 100)
+        if regime == "High":
+            regime_adj_note = (
+                f"The base blend of {base_mvo_pct}/{100-base_mvo_pct} was then shifted toward the "
+                f"market-informed method because current market volatility is elevated, making recent "
+                f"historical returns a less reliable guide — the market-informed method received an "
+                f"additional 15 percentage points of weight."
+            )
+        else:
+            regime_adj_note = (
+                f"The base blend of {base_mvo_pct}/{100-base_mvo_pct} was then shifted toward the "
+                f"historically-informed method because markets have been unusually calm recently, making "
+                f"recent history a stronger predictor — the historically-informed method received an "
+                f"additional 15 percentage points of weight."
+            )
+    else:
+        if mvo_sharpe >= bl_sharpe:
+            regime_adj_note = (
+                f"The historically-informed method received more weight because it had a stronger "
+                f"out-of-sample Sharpe ratio ({mvo_sharpe:.2f} vs {bl_sharpe:.2f})."
+            )
+        else:
+            regime_adj_note = (
+                f"The market-informed method received more weight because it had a stronger "
+                f"out-of-sample Sharpe ratio ({bl_sharpe:.2f} vs {mvo_sharpe:.2f})."
+            )
+
+    part2_comb = (
+        f"The **blended approach (Combined)** produced {comb_ret*100:.1f}% annual return at "
+        f"{comb_vol*100:.1f}% volatility out of sample, with a Sharpe ratio of {comb_sharpe:.2f}. "
+        f"It gave {mvo_pct}% weight to the historically-informed method and {bl_pct}% to the "
+        f"market-informed method. {regime_adj_note}"
+    )
+
+    # ── Part 3: Why we chose this method ─────────────────────────────────────
+    plain_names = {
+        "MVO":      "historically-informed (Standard)",
+        "BL":       "market-informed (Market-Informed)",
+        "Combined": "blended (Combined)",
+    }
+    sorted_sharpes = sorted(
+        [("MVO", mvo_sharpe), ("BL", bl_sharpe), ("Combined", comb_sharpe)],
+        key=lambda x: x[1], reverse=True
+    )
+    winner_sharpe = sorted_sharpes[0][1]
+    second_method = sorted_sharpes[1][0]
+    second_sharpe = sorted_sharpes[1][1]
+    third_method  = sorted_sharpes[2][0]
+    third_sharpe  = sorted_sharpes[2][1]
+
+    margin = winner_sharpe - second_sharpe
+    if margin <= 0.05:
+        margin_sent = (
+            f"The margin was narrow — all three approaches performed similarly "
+            f"(Sharpe ratios within {margin:.2f} of each other), which is why the blended method "
+            f"is an equally defensible choice regardless of which approach nominally came first."
+        )
+    elif margin <= 0.15:
+        margin_sent = (
+            f"The difference was modest — the winning approach produced {margin:.2f} more units of "
+            f"risk-adjusted return than the next best alternative."
+        )
+    else:
+        margin_sent = (
+            f"The difference was meaningful — the winning approach produced {margin:.2f} more units of "
+            f"risk-adjusted return than the next best alternative, a gap large enough that it is unlikely "
+            f"to be due to chance alone."
+        )
+
+    driver_map = {
+        ("MVO",      "High"):   "The key factor was that even in an elevated-volatility environment, the historical patterns in your selected stocks were strong enough to outperform market-implied estimates.",
+        ("MVO",      "Normal"): "The key factor was the consistency of recent returns in your selected stocks — the historical data contained enough signal to give the data-driven approach a clear edge.",
+        ("MVO",      "Low"):    "The key factor was the current calm market environment — when conditions are stable, recent historical returns are a reliable predictor, giving the data-driven approach a clear advantage.",
+        ("BL",       "High"):   "The key factor was the current elevated volatility — when markets are turbulent, market-implied estimates of future returns tend to be more stable than estimates based on recent performance, which can look distorted.",
+        ("BL",       "Normal"): "The key factor was that market-implied returns provided a more stable anchor for the allocation than the recent historical data, which may have overstated the relative attractiveness of one or two stocks.",
+        ("BL",       "Low"):    "The key factor was that even in calm conditions, the market's collective view of these stocks provided a better signal than their recent price history.",
+        ("Combined", "High"):   "The key factor was that neither method dominated clearly in this volatility environment — the blended approach avoided the extreme positions that either method would have taken alone, producing a more consistent result.",
+        ("Combined", "Normal"): "The key factor was that no single method dominated clearly — the blended approach captured the best of both by avoiding the extreme positions that either method would have taken alone.",
+        ("Combined", "Low"):    "The key factor was that even in calm conditions, neither the historical nor the market-expectations approach dominated clearly — combining them produced the most reliable result.",
+    }
+    driver_sent = driver_map.get((winner, regime), driver_map.get((winner, "Normal"), ""))
+
+    part3_why = (
+        f"We selected the **{plain_names[winner]}** approach because it produced the strongest "
+        f"risk-adjusted return for your chosen risk level — a Sharpe ratio of {winner_sharpe:.2f} "
+        f"compared to {second_sharpe:.2f} for the {plain_names[second_method]} and "
+        f"{third_sharpe:.2f} for the {plain_names[third_method]}. "
+        f"{margin_sent} {driver_sent}"
+    )
+
+    # ── Part 4: Combined construction detail (only shown if Combined won) ────
+    if winner != "Combined":
+        return [part2_std, part2_bl, part2_comb, part3_why, None]
+
+    divergences = sorted(
+        [
+            (
+                t,
+                float(mvo_weights[t]),
+                float(bl_weights.get(t, 0.0)),
+                float(combined_w.get(t, 0.0)),
+                abs(float(mvo_weights[t]) - float(bl_weights.get(t, 0.0))),
+            )
+            for t in tickers
+        ],
+        key=lambda x: x[4], reverse=True,
+    )
+    top_div = [
+        (names.get(t, t), mw, bw, cw)
+        for t, mw, bw, cw, d in divergences
+        if d >= 0.03
+    ][:3]
+
+    if top_div:
+        div_pieces = ", ".join(
+            f"{n} ({mw*100:.0f}% Standard vs {bw*100:.0f}% Market-Informed, settled at {cw*100:.0f}%)"
+            for n, mw, bw, cw in top_div
+        )
+        div_sent = (
+            f"Stocks where the methods disagreed most — {div_pieces} — had their allocations pulled "
+            f"toward the middle, reducing the risk of either method's extreme view dominating."
+        )
+    else:
+        div_sent = (
+            "In this case, the two methods produced fairly similar allocations, so the blend made "
+            "only modest adjustments to either set of weights."
+        )
+
+    if regime_adj_applied:
+        base_mvo_pct = round(base_alpha * 100)
+        if regime == "High":
+            regime_detail = (
+                f"This base blend of {base_mvo_pct}/{100-base_mvo_pct} was then adjusted for current "
+                f"market conditions — because volatility is above its long-run average, the market-informed "
+                f"method received an additional 15 percentage points of weight, bringing the final split to "
+                f"{mvo_pct}/{bl_pct}. "
+            )
+        else:
+            regime_detail = (
+                f"This base blend of {base_mvo_pct}/{100-base_mvo_pct} was then adjusted for current "
+                f"market conditions — because volatility is below its long-run average, the historically-informed "
+                f"method received an additional 15 percentage points of weight, bringing the final split to "
+                f"{mvo_pct}/{bl_pct}. "
+            )
+    else:
+        regime_detail = ""
+
+    part4_detail = (
+        f"The blended portfolio is not a simple average. It gave {mvo_pct}% influence to the "
+        f"historically-informed method and {bl_pct}% to the market-informed method, calculated from "
+        f"their relative Sharpe ratios on unseen data ({mvo_sharpe:.2f} vs {bl_sharpe:.2f}). "
+        f"{regime_detail}"
+        f"{div_sent}"
+    )
+
+    return [part2_std, part2_bl, part2_comb, part3_why, part4_detail]
 
 
 # ── Plain-English stock descriptions ─────────────────────────────────────────
@@ -1320,9 +1498,13 @@ def main():
         "reliable recently."
     )
 
-    _para2, _para3 = generate_method_explanation(winner, mvo_bt_m, bl_bt_m, comb_bt_m, regime)
-    st.markdown(_para2)
-    st.markdown(_para3)
+    _exp_parts = generate_method_explanation(
+        winner, mvo_bt_m, bl_bt_m, comb_bt_m, regime,
+        mvo_weights, bl_weights, combined_w, names,
+    )
+    for _p in _exp_parts:
+        if _p:
+            st.markdown(_p)
 
     _divider()
 
