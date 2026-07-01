@@ -111,9 +111,3 @@ portfolio-optimiser/
 - Returns for non-UK stocks are calculated in local currency terms — currency movements are not accounted for
 - The model assumes liquid markets and ignores transaction costs and bid-ask spreads
 - This tool is for educational and research purposes only and does not constitute financial advice. Capital is at risk.
-
----
-
-## Built by
-
-Shrijan Ramesh — Economics student, University of Cambridge
